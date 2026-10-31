@@ -16,13 +16,18 @@
 - 数据来源：上交所/深交所每日 ETF 份额 + 基金单位净值；中证全指 K 线来自行情接口
 
 ## 每日自动更新
-- **GitHub Actions**：`.github/workflows/daily-refresh.yml` 每个工作日 20:00（北京时间）自动运行
-  `refresh.py` 抓取数据、重算并提交最新 `index.html`。也可在 Actions 页手动 "Run workflow"。
-- **本地**：`python refresh.py` 一键刷新（约需几分钟）。
+- **GitHub Actions**：`.github/workflows/daily-refresh.yml` 每天自动运行 `refresh.py` 抓取数据、重算并提交最新
+  `index.html`。触发时刻（北京时间）：早盘 07:45 / 08:00 / 08:15 / 08:30 / 08:45 / 09:00 / 09:15 / 09:30
+  每 15 分钟一趟（接住交易所「次日才发布」的份额），外加 16:00 收盘后一趟、23:00 兜底一趟。
+  数据未推进时脚本沿用旧时间戳，输出字节不变，工作流自动跳过提交，不会产生冗余 commit。
+  也可在 Actions 页手动 "Run workflow"。
+- **本地**：`pip install akshare pandas requests` 后 `python refresh.py` 一键刷新（约需几分钟）。
+- **份额缓存**：`_etf_shares_cache.json` 保存近 5 年份额历史，每次只增量拉取最近若干天再合并写回，
+  因此云端跑一次只要几分钟。**不要删除该文件**，否则需重新全量补抓 5 年历史。
 
 ## 发布为网页
 1. 本仓库在 GitHub 开启 **Settings → Pages**，Sources 选 `Deploy from a branch` → 分支 `main` 根目录。
-2. 访问 `https://<你的用户名>.github.io/<仓库名>/` 即得在线报表。
+2. 访问 `https://wj624.github.io/national-team-etf-flow/` 即得在线报表。
 
 ## 免责声明
 本报表仅用于数据观察与学习，不构成任何投资建议。净买卖为份额口径的估算，非盘中实时流量。
