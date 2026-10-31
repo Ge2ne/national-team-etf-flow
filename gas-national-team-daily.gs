@@ -51,7 +51,10 @@ var CONFIG = {
   URL_SITE: 'https://wj624.github.io/national-team-etf-flow/',
 
   // —— 密钥 ——
-  GEMINI_API_KEY: 'AIzaSyByI8CxUl-oLHuEaKs-30xORMw3VQmvRnE',
+  // ⚠️ 不要把密钥写在这里！这个文件是公开仓库的一部分，
+  //    Google 的泄露扫描器会扫到并自动把密钥作废。
+  //    正确做法：跑一次 setGeminiKey('你的密钥')，存在脚本属性里，下面的代码会自动读。
+  GEMINI_API_KEY: '',   // 留空即可；只有当脚本属性里没有值时才会用到它
 
   // —— 收件人（多个用英文逗号分隔）——
   RECEIVER_EMAIL: '332515070@qq.com',
@@ -70,6 +73,54 @@ var CONFIG = {
   WITH_GEMINI: true,        // false = 不调 AI，直接用规则版总结
   DRY_RUN: false            // true = 只打印 HTML 不发信
 };
+
+// 密钥存在脚本属性里，而不是写在代码中（代码会被提交到公开仓库）
+var PROP_KEY = 'GEMINI_API_KEY';
+
+// 最近一次和 Google 通信的失败报文，listGeminiModels 靠它区分「密钥被作废」和「没开 API」
+var LAST_GEMINI_ = { code: 0, msg: '' };
+
+/** 取密钥：优先脚本属性，其次 CONFIG（兼容旧写法） */
+function geminiKey_() {
+  try {
+    var k = PropertiesService.getScriptProperties().getProperty(PROP_KEY);
+    if (k) return String(k).trim();
+  } catch (e) {}
+  return String(CONFIG.GEMINI_API_KEY || '').trim();
+}
+
+/** 密钥指纹：只露头尾，方便确认是不是同一把 */
+function keyFp_(k) {
+  if (!k) return '（未设置）';
+  if (k.length <= 12) return '（太短，可能填错）';
+  return k.substring(0, 6) + '…' + k.substring(k.length - 4) + '（' + k.length + ' 位）';
+}
+
+/**
+ * ① 设置 Gemini 密钥（只需要跑一次，之后一直生效）
+ * 用法：把下面这行的 thisKeyIsNotSet 换成你的密钥，运行一次，然后把那行删掉。
+ *   setGeminiKey('AIza...你的密钥...')
+ */
+function setGeminiKey(k) {
+  if (k === undefined || k === null || String(k).trim() === '' || String(k) === 'thisKeyIsNotSet') {
+    log_('用法：在代码里临时写一行  setGeminiKey(\'你的密钥\')  然后运行本函数。');
+    log_('密钥申请地址：https://aistudio.google.com/apikey');
+    log_('当前已设置的密钥：' + keyFp_(geminiKey_()));
+    return;
+  }
+  var v = String(k).trim();
+  PropertiesService.getScriptProperties().setProperty(PROP_KEY, v);
+  log_('✅ 已保存密钥：' + keyFp_(v));
+  log_('   它存在「项目设置 → 脚本属性」里，不会随代码一起被提交或分享。');
+  log_('   建议现在把刚才那行 setGeminiKey(...) 删掉，避免留在编辑器里。');
+  log_('   下一步：运行 listGeminiModels() 确认能用哪些模型。');
+}
+
+/** 清掉已存的密钥 */
+function clearGeminiKey() {
+  PropertiesService.getScriptProperties().deleteProperty(PROP_KEY);
+  log_('已清除脚本属性里的密钥。当前：' + keyFp_(geminiKey_()));
+}
 
 // 脚本属性里存「上次成功发送的数据日」，用于去重
 var PROP_ASOF = 'LAST_ASOF';
@@ -438,11 +489,12 @@ function fetchModelList_() {
   var out = [];
   try {
     var url = 'https://generativelanguage.googleapis.com/v1beta/models' +
-              '?key=' + CONFIG.GEMINI_API_KEY + '&pageSize=200';
+              '?key=' + geminiKey_() + '&pageSize=200';
     var r = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
     var code = r.getResponseCode();
     if (code !== 200) {
       var msg = r.getContentText('UTF-8');
+      LAST_GEMINI_ = { code: code, msg: msg };
       log_('列模型失败 HTTP ' + code + '：' + msg.substring(0, 300));
       log_('提示：' + geminiHint_(code, msg));
       return out;
@@ -514,7 +566,7 @@ function discoverModels_(allIn) {
 function tryGeminiModel_(model, prompt) {
   try {
     var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
-              model + ':generateContent?key=' + CONFIG.GEMINI_API_KEY;
+              model + ':generateContent?key=' + geminiKey_();
     var payload = {
       contents: [{ parts: [{ text: prompt }] }],
       // maxOutputTokens 给大一些：2.5 系列模型的「思考」也计入输出额度，
@@ -530,6 +582,7 @@ function tryGeminiModel_(model, prompt) {
     var code = r.getResponseCode();
     if (code !== 200) {
       var msg = r.getContentText('UTF-8');
+      LAST_GEMINI_ = { code: code, msg: msg };
       var hint = geminiHint_(code, msg);
       log_('Gemini ' + model + ' HTTP ' + code + '：' + msg.substring(0, 260));
       return { ok: false, err: model + ' → HTTP ' + code + (hint ? '，' + hint : '') };
@@ -570,6 +623,10 @@ function runModelList_(list, prompt, errs) {
  * 这样模型改名/下线时脚本能自己恢复，不用人去改代码。
  */
 function askGemini_(d, txt, asof, today) {
+  if (!geminiKey_()) {
+    return { ok: false, lines: null, model: '',
+             error: '还没设置 Gemini 密钥：运行一次 setGeminiKey(\'你的密钥\')，密钥在 https://aistudio.google.com/apikey 申请' };
+  }
   var prompt = buildPrompt_(d, txt, asof, today);
   var errs = [];
 
@@ -614,8 +671,14 @@ function geminiHint_(code, msg) {
   if (code === 400 && /API key expired/i.test(m)) return '密钥已过期，去 AI Studio 新建一把';
   if (code === 400) return '请求参数被拒，多半是模型名不对';
 
-  // 403 有三种完全不同的原因，分开说，否则没法修
+  // 403 有几种完全不同的原因，分开说，否则没法修
   if (code === 403) {
+    if (/reported as leaked|has been leaked|leaked API key/i.test(m)) {
+      return '⛔ 这把密钥已被 Google 判定为「泄露」并永久作废（多半是被公开仓库/网页扫到）。' +
+             '改配置没用，必须新建一把：https://aistudio.google.com/apikey ' +
+             '然后运行 setGeminiKey(\'新密钥\')';
+    }
+    if (/API_KEY_EXPIRED|expired/i.test(m)) return '密钥已过期，去 AI Studio 新建一把';
     if (/SERVICE_DISABLED|has not been used in project|it is disabled|enable it by visiting/i.test(m)) {
       return '这把密钥所属的 Google Cloud 项目还没启用 Generative Language API。' +
              '打开 https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com ' +
@@ -1414,6 +1477,7 @@ function testConnections() {
   log_('   ' + (txt ? '✅ ' + txt.length + ' 字符' : '❌ 取不到（只影响 AI 的输入质量，不影响发信）'));
 
   log_('—— 3/4 Gemini ——');
+  log_('   密钥：' + keyFp_(geminiKey_()) + (geminiKey_() ? '' : '　→ 先运行 setGeminiKey(\'你的密钥\')'));
   if (!CONFIG.WITH_GEMINI) {
     log_('   已关闭（WITH_GEMINI=false），邮件里会用规则生成的总结');
   } else if (!d) {
@@ -1451,13 +1515,38 @@ function testConnections() {
  */
 function listGeminiModels() {
   log_('=== 问 Google：这把密钥能用哪些模型 ===');
-  log_('密钥指纹：' + (function (k) {
-    return k ? (k.substring(0, 6) + '…' + k.substring(k.length - 4) + '（' + k.length + ' 位）') : '（空）';
-  })(CONFIG.GEMINI_API_KEY));
+  var k = geminiKey_();
+  log_('密钥指纹：' + keyFp_(k));
+
+  if (!k) {
+    log_('');
+    log_('❌ 还没设置密钥。先运行一次（把里面的字替换成你的密钥）：');
+    log_("     setGeminiKey('AIza...你的密钥...')");
+    log_('   密钥申请：https://aistudio.google.com/apikey');
+    log_('   设置一次就永久生效，存在「项目设置 → 脚本属性」里，不会随代码走。');
+    return;
+  }
 
   var all = fetchModelList_();
   if (!all.length) {
     log_('');
+    // 先判断是不是「密钥被判泄露」，这种情况改配置是没用的
+    if (/reported as leaked|leaked/i.test(LAST_GEMINI_.msg || '')) {
+      log_('⛔ 这把密钥已被 Google 判定为「泄露」并永久作废 —— 不是配置问题，改什么都没用。');
+      log_('');
+      log_('   原因：密钥出现在公开可访问的地方（例如被提交进公开的 GitHub 仓库、');
+      log_('        粘贴到公开网页），Google 的自动化扫描器扫到后直接封禁。');
+      log_('   处理（3 步，2 分钟）：');
+      log_('     1. 打开 https://aistudio.google.com/apikey');
+      log_('     2. 「Create API key」→ 选择一个项目（或新建）→ 复制新密钥');
+      log_('     3. 回到编辑器，临时写一行并运行：');
+      log_("          setGeminiKey('刚复制的新密钥')");
+      log_('        然后把这行删掉，再跑一次 listGeminiModels() 验证。');
+      log_('');
+      log_('   以后不会再犯：本脚本已改成从「脚本属性」读密钥，代码里是空的，');
+      log_('   提交到仓库也不会带出任何密钥。');
+      return;
+    }
     log_('❌ 一个模型都列不出来。这通常意味着下面三种情况之一：');
     log_('   1. 密钥所属的 Cloud 项目没启用 Generative Language API');
     log_('      → https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com');

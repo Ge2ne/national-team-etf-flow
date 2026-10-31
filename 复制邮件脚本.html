@@ -69,14 +69,24 @@
       <li>打开 <a href="https://script.google.com/home" target="_blank" rel="noopener">script.google.com/home</a> → 左上「新项目」</li>
       <li>项目名改成 <b>五、 国家队ETF流向</b></li>
       <li>把上面这段代码全部粘进去，覆盖掉默认的 <code>myFunction</code>，<code>Ctrl+S</code> 保存</li>
+      <li><b>设置 Gemini 密钥</b>（只需一次）：去
+          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>
+          点 Create API key 拿一把，然后在代码最末尾临时加一行并运行它：
+          <div style="margin:6px 0"><code>function setupKey() { setGeminiKey('粘贴密钥'); }</code></div>
+          看到「✅ 已保存密钥：AIzaSy…xxxx」后，<b>把这行删掉</b>再保存</li>
       <li>在编辑器顶部下拉里选 <code>testConnections</code> → 点「运行」→ 授权（高级 → 前往项目（不安全）→ 允许）</li>
       <li>选 <code>previewNow</code> → 运行，去邮箱看效果</li>
       <li>选 <code>installDailyTrigger</code> → 运行，装上每天 08:30 的定时器</li>
       <li>点左侧闹钟图标「触发器」，确认有一条 <code>dailyMain</code> / 每天 / 上午 8 点~9 点</li>
     </ol>
     <div class="tip" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af">
-      代码里已经写好了数据源地址，不需要改任何东西就能跑。
-      想改收件人、发信时间、开关 AI，只动文件顶部的 <code>CONFIG</code> 就行。
+      数据源地址已经写好，不用改。想改收件人、发信时间、开关 AI，只动文件顶部的 <code>CONFIG</code>。
+    </div>
+    <div class="tip" style="background:#fef2f2;border-color:#fecaca;color:#991b1b">
+      <b>代码里没有密钥，这是故意的。</b>本页的脚本会提交到公开仓库，如果把 Gemini 密钥写进代码，
+      Google 的扫描器会扫到并判定「泄露」，直接永久作废
+      （报错 <code>403 Your API key was reported as leaked</code>）。
+      密钥要存在 Apps Script 的「脚本属性」里，用 <code>setGeminiKey()</code> 设置一次即可。
     </div>
   </div>
 

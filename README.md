@@ -253,16 +253,49 @@ README.md                             本文件
 1. 打开 <https://script.google.com/home> → 左上「新项目」
 2. 项目名改成 **五、 国家队ETF流向**
 3. 把 `gas-national-team-daily.gs` 全文粘进编辑器，**覆盖掉默认的空 `myFunction`**，`Ctrl+S` 保存
-4. 依次运行下面三个函数（都在编辑器顶部下拉里选），每个第一次都会弹授权，
+4. **设置 Gemini 密钥**（只需一次）。密钥不写在代码里，而是存进「脚本属性」：
+   - 去 <https://aistudio.google.com/apikey> 点「Create API key」拿一把
+   - 在编辑器里临时加一行（可以加在文件最末尾）：
+     ```js
+     function setupKey() { setGeminiKey('把刚复制的密钥粘贴到这里'); }
+     ```
+   - 下拉选 `setupKey` → 运行 → 日志出现「✅ 已保存密钥：AIzaSy…xxxx（39 位）」
+   - **把刚才那行删掉**，`Ctrl+S`
+5. 依次运行下面三个函数（都在编辑器顶部下拉里选），每个第一次都会弹授权，
    点「查看权限」→ 选账号 → 左下「高级」→「前往项目（不安全）」→「允许」：
 
    | 顺序 | 函数 | 作用 |
    |---|---|---|
-   | ① | `testConnections()` | 体检：数据源通不通、Gemini 能不能用、还剩多少发信额度 |
-   | ② | `previewNow()` | 立刻发一封到邮箱，看实际效果 |
-   | ③ | `installDailyTrigger()` | 装定时器：每天 08:30 自动跑 |
+   | ① | `testConnections()` | 体检：数据源通不通、密钥有没有、还剩多少发信额度 |
+   | ② | `listGeminiModels()` | 可选。列出你的密钥能用哪些模型；只有 AI 报错时才需要跑 |
+   | ③ | `previewNow()` | 立刻发一封到邮箱，看实际效果 |
+   | ④ | `installDailyTrigger()` | 装定时器：每天 08:30 自动跑 |
 
-5. 点左侧**闹钟图标「触发器」**确认有一条：`dailyMain` / 时间驱动 / 每天 / 上午 8 点~9 点 / 已创建
+6. 点左侧**闹钟图标「触发器」**确认有一条：`dailyMain` / 时间驱动 / 每天 / 上午 8 点~9 点 / 已创建
+
+### ⚠️ 密钥为什么不能写在代码里
+
+这个仓库是**公开**的，`gas-national-team-daily.gs` 也在其中。Google 有自动化扫描器
+盯着 GitHub 上的公开仓库，一旦扫到 `AIza` 开头的 Gemini 密钥，会直接把它**判定为泄露并永久作废**，
+之后所有请求都返回 `403 Your API key was reported as leaked`。
+
+所以脚本里 `CONFIG.GEMINI_API_KEY` 是空的，真实的密钥存在 Apps Script 的
+「项目设置 → 脚本属性」里（`GEMINI_API_KEY` 这个键），运行时才读取。
+
+**这一条对所有密钥都适用**：不要把任何 API key 提交进公开仓库，也不要把带密钥的文件
+截图、粘贴到公开的地方。
+
+### 密钥出问题怎么排查
+
+跑 `listGeminiModels()`，日志会直接告诉你是哪一类：
+
+| 日志里出现 | 含义 | 处理 |
+|---|---|---|
+| `reported as leaked` | 密钥已被判定泄露、永久作废 | 只能新建一把，`setGeminiKey()` 重新设置 |
+| `SERVICE_DISABLED` | 密钥所属项目没启用 Generative Language API | 去控制台启用，或**直接新建一把**（AI Studio 新建的会自动开好） |
+| `API_KEY_SERVICE_BLOCKED` | 密钥设了 API 限制 | 控制台去掉限制，或新建 |
+| `PERMISSION_DENIED` 且无上述字样 | 该模型对你未开放 | 换模型；脚本本身也会自动发现可用模型 |
+| `共 N 个模型` | 通了 | 末尾会打印推荐的 `GEMINI_MODELS` 行 |
 
 ### 会主动不发的情况
 
