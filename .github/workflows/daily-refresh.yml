@@ -48,5 +48,7 @@ jobs:
             echo "报表无变化, 跳过提交"
           else
             git commit -m "chore: 每日自动刷新国家队ETF净买卖报表 ($(date +%F\ %T) 北京+8)"
+            # 脚本抓取耗时较长, 期间若有人往 main 推过提交, 直接 push 会被拒; 先 rebase 再推
+            git pull --rebase origin main || { echo "rebase 失败, 交由下一次调度重试"; exit 1; }
             git push
           fi
