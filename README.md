@@ -177,6 +177,21 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 > 想要人看的图表版就用第一个；想让 AI 总结、或自己写脚本取数，用第二个/第三个。
 > `_etf_data.json` 有 2.5MB，一般不必直接下载。
 
+**实测状态（2026-11-01）**：
+
+| 地址 | 状态 | Content-Type | 大小 |
+|---|---|---|---|
+| `index.html` | 200 | text/html | 1,252,493 B |
+| `latest.json` | 200 | application/json | 9,489 B |
+| `llms.txt` | 200 | text/plain | 8,280 B |
+| `snapshot.md` | 200 | text/markdown | 8,280 B |
+| `_etf_data.json` | 200 | application/json | 2,459,989 B |
+| `_etf_shares_cache.json` | 200 | application/json | 1,673,842 B |
+
+> ⚠️ **`.nojekyll` 不能删。** GitHub Pages 默认跑 Jekyll，会**静默排除所有以 `_` 开头的文件**，
+> 导致 `_etf_data.json` / `_etf_shares_cache.json` 返回 404。仓库根目录那个空的 `.nojekyll`
+> 就是用来关闭 Jekyll 处理的。删了它，上面两个文件立刻变 404。
+
 `latest.json` 里已经算好了这些结论，下游不用重算：
 
 | 字段 | 含义 |
@@ -206,6 +221,7 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 refresh.py                            抓取 + 计算 + 生成报表的全部逻辑（约 1000 行）
 make_summary.py                       从 _etf_data.json 提炼 latest.json / llms.txt / snapshot.md
 index.html                            已发布的自包含报表（由工作流自动生成并提交）
+.nojekyll                             空文件，关闭 Jekyll，否则下划线开头的文件不会被发布
 _etf_data.json                        完整原始数据（自动生成并提交，供下游读取）
 latest.json                           精简结论数（自动生成，约 9.5KB）
 llms.txt / snapshot.md                人话版摘要（自动生成，约 8.3KB）
