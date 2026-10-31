@@ -220,6 +220,7 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 .github/workflows/daily-refresh.yml   GitHub Actions 定时刷新工作流
 refresh.py                            抓取 + 计算 + 生成报表的全部逻辑（约 1000 行）
 make_summary.py                       从 _etf_data.json 提炼 latest.json / llms.txt / snapshot.md
+gas-national-team-daily.gs            Google Apps Script 邮件脚本（每天早上发一封解读）
 index.html                            已发布的自包含报表（由工作流自动生成并提交）
 .nojekyll                             空文件，关闭 Jekyll，否则下划线开头的文件不会被发布
 _etf_data.json                        完整原始数据（自动生成并提交，供下游读取）
@@ -232,6 +233,56 @@ README.md                             本文件
 
 > `latest.json` / `llms.txt` / `snapshot.md` 都是**构建产物**，不要手改——下次刷新会被覆盖。
 > 要调整内容请改 `make_summary.py`，本地先跑 `python make_summary.py --check` 预览。
+
+## 十二、每天早上收一封邮件（可选）
+
+`gas-national-team-daily.gs` 是配套的邮件脚本，跑在 Google Apps Script 上，免费、不用服务器。
+它读本站的 `latest.json`，把结论整理成一封图文邮件，**工作日 08:30（北京）**发到你的邮箱。
+
+### 分工
+
+计算全部在 `make_summary.py` 里做完，GAS **只负责取数和排版**。
+这样两端的算法不会各写一套、慢慢漂移——改口径只改 Python 一处。
+
+### 部署步骤
+
+1. 打开 <https://script.google.com/home> → 左上「新项目」
+2. 项目名改成 **五、 国家队ETF流向**
+3. 把 `gas-national-team-daily.gs` 全文粘进编辑器，**覆盖掉默认的空 `myFunction`**，`Ctrl+S` 保存
+4. 依次运行下面三个函数（都在编辑器顶部下拉里选），每个第一次都会弹授权，
+   点「查看权限」→ 选账号 → 左下「高级」→「前往项目（不安全）」→「允许」：
+
+   | 顺序 | 函数 | 作用 |
+   |---|---|---|
+   | ① | `testConnections()` | 体检：数据源通不通、Gemini 能不能用、还剩多少发信额度 |
+   | ② | `previewNow()` | 立刻发一封到邮箱，看实际效果 |
+   | ③ | `installDailyTrigger()` | 装定时器：每天 08:30 自动跑 |
+
+5. 点左侧**闹钟图标「触发器」**确认有一条：`dailyMain` / 时间驱动 / 每天 / 上午 8 点~9 点 / 已创建
+
+### 会主动不发的情况
+
+- **周末**：A 股不交易，直接跳过
+- **数据日没推进**：交易所份额还没披露，数字和昨天一模一样，发第二遍没意义。
+  连续 3 次没推进会改发一封「数据卡住了」的提醒，避免无声坏掉
+
+想强制发一封，随时跑 `previewNow()`，它不看这两个条件。
+
+### 常用开关（都在脚本顶部的 `CONFIG` 里）
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `RECEIVER_EMAIL` | 已填 | 收件人，多个用英文逗号分隔 |
+| `TRIGGER_HOUR` / `TRIGGER_MINUTE` | 8 / 30 | 发信时刻（改完要重跑 `installDailyTrigger()`） |
+| `WITH_GEMINI` | `true` | 改 `false` 就不调大模型，直接用规则版总结（省配额、更快） |
+| `WEEKDAYS_ONLY` | `true` | 改 `false` 周末也发 |
+| `SKIP_IF_UNCHANGED` | `true` | 改 `false` 数据没变也照发 |
+| `DRY_RUN` | `false` | 改 `true` 只打印 HTML 不发信 |
+
+其他工具函数：`removeTriggers()` 停发、`showHtml()` 只在日志里看邮件源码、`resetDedup()` 清掉去重记录。
+
+> **AI 挂了不影响发信。** 邮件照发，「AI 总结」那一栏会自动降级成程序按固定规则拼的版本，
+> 并在邮件里写明是哪个模型、报了什么错、怎么排查。降级版的结论来自同一批数字，只是措辞不如 AI 自然。
 
 ## 免责声明
 
