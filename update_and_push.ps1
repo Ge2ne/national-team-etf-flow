@@ -1,7 +1,8 @@
 $ErrorActionPreference = "Continue"
-$base   = "C:\Users\wxk11\AppData\Roaming\TRAE SOLO CN\ModularData\ai-agent\work-mode-projects\6a8c67082883811a6cb4cc6f"
+# 按需修改这三处: 仓库所在目录 / PAT 文件位置 / 推送地址里的用户名
+$base   = Split-Path -Parent $PSScriptRoot
 $repo   = Join-Path $base "national-team-etf-flow"
-$secret = "C:\Users\wxk11\.trae-cn\memory\.gh_pat.txt"
+$secret = Join-Path $env:USERPROFILE ".gh_pat.txt"
 $lock   = Join-Path $base ".update.lock"
 $log    = Join-Path $base "auto_update.log"
 
@@ -24,10 +25,10 @@ try {
   } else {
     if (-not (Test-Path $secret)) { Log "secret missing, skip push"; exit 0 }
     $tok = (Get-Content $secret -Raw).Trim()
-    git -c user.name="wwww1998" -c user.email="wwww1998@users.noreply.github.com" commit -m ("chore: auto refresh national team ETF report " + (Get-Date -Format "yyyyMMdd HH:mm")) | Out-Null
+    git -c user.name="wj624" -c user.email="wj624@users.noreply.github.com" commit -m ("chore: auto refresh national team ETF report " + (Get-Date -Format "yyyyMMdd HH:mm")) | Out-Null
     if ($LASTEXITCODE -ne 0) { Log "commit failed"; exit 0 }
     $env:GIT_TERMINAL_PROMPT = "0"
-    $url = "https://x-access-token:$tok@github.com/wwww1998/national-team-etf-flow.git"
+    $url = "https://x-access-token:$tok@github.com/wj624/national-team-etf-flow.git"
     git -c credential.helper= push $url main 2>$null
     if ($LASTEXITCODE -eq 0) { Log "pushed to GitHub" } else { Log "push failed (network?)" }
   }
