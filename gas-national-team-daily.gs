@@ -364,7 +364,8 @@ function buildRuleSummary_(d) {
 // 6. Gemini 解读
 //    要求模型只输出 7 行「标签|内容」，便于稳定解析
 // ============================================================
-function askGemini_(d, txt, asof, today) {
+/** 把当日数据拼成给模型的 prompt。单独拆出来，重试时不用重复拼。 */
+function buildPrompt_(d, txt, asof, today) {
   var T = d.today || {}, W = d.windows || {}, mv = d.mv || {};
 
   var factLine =
@@ -385,8 +386,7 @@ function askGemini_(d, txt, asof, today) {
       plain_(num_(mv.lo, 0), 1) + '（' + (mv.lo_date || '') + '）\n' +
     (d.reversal ? '- ⚠️ 短期与长期方向相反：' + d.reversal.text + '\n' : '- 短期与长期方向一致，无反转警示\n');
 
-  var prompt =
-    '你正在给一个刚开始关注 A 股资金面的普通投资者写每日解读。\n' +
+  return '你正在给一个刚开始关注 A 股资金面的普通投资者写每日解读。\n' +
     '下面是一个「国家队宽基 ETF 净申购/净赎回」看板今天的全部数据。请据此写出今天的解读。\n\n' +
     '严格遵守：\n' +
     '1. 只能使用数据里出现的事实。绝对不要编造任何数字、政策、新闻、机构动作或历史事件。\n' +
@@ -408,63 +408,236 @@ function askGemini_(d, txt, asof, today) {
     factLine + '\n' +
     '数据生成时间：' + (d.generated || '') + '，今天：' + today + '\n\n' +
     '完整数据如下：\n' + (txt || '（本次未取到 llms.txt，仅凭上面的确定事实判断）');
+}
 
-  var errs = [];
-  for (var i = 0; i < CONFIG.GEMINI_MODELS.length; i++) {
-    var model = CONFIG.GEMINI_MODELS[i];
-    try {
-      var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
-                model + ':generateContent?key=' + CONFIG.GEMINI_API_KEY;
-      var payload = {
-        contents: [{ parts: [{ text: prompt }] }],
-        // maxOutputTokens 给大一些：2.5 系列模型的「思考」也计入输出额度，
-        // 给小了会出现正文被截断、只剩思考片段的情况。
-        generationConfig: { temperature: 0.35, maxOutputTokens: 4000, topP: 0.9 }
-      };
-      var r = UrlFetchApp.fetch(url, {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true
-      });
-      var code = r.getResponseCode();
-      if (code !== 200) {
-        var msg = r.getContentText('UTF-8');
-        var hint = geminiHint_(code, msg);
-        errs.push(model + ' → HTTP ' + code + (hint ? '，' + hint : ''));
-        log_('Gemini ' + model + ' HTTP ' + code + '：' + msg.substring(0, 260));
-        continue;
-      }
-      var body = JSON.parse(r.getContentText('UTF-8'));
-      var text = extractGeminiText_(body);
-      if (!text) {
-        errs.push(model + ' → 返回空内容（finishReason=' +
-                  (((body.candidates || [])[0] || {}).finishReason || '无') + '）');
-        continue;
-      }
-      var parsed = parseGeminiLines_(text);
-      if (!parsed) {
-        errs.push(model + ' → 输出格式不符（未解析出标签行）');
-        log_('Gemini ' + model + ' 输出不符合格式，原文：' + text.substring(0, 300));
-        continue;
-      }
-      log_('Gemini ' + model + ' OK，解析到 ' + parsed.length + ' 行');
-      return { ok: true, lines: parsed, model: model, error: '' };
-    } catch (e) {
-      errs.push(model + ' → ' + String(e).substring(0, 120));
-      log_('Gemini ' + model + ' 异常：' + e);
+/** 模型名缓存：自动发现成功后写进脚本属性，下次直接命中，不用每次重新探测 */
+var PROP_MODELS = 'GEMINI_MODELS_CACHE';
+
+function cachedModels_() {
+  try {
+    var s = PropertiesService.getScriptProperties().getProperty(PROP_MODELS) || '';
+    if (!s) return [];
+    var a = JSON.parse(s);
+    return (Object.prototype.toString.call(a) === '[object Array]') ? a : [];
+  } catch (e) { return []; }
+}
+
+function saveModels_(arr) {
+  try {
+    PropertiesService.getScriptProperties().setProperty(PROP_MODELS, JSON.stringify(arr));
+    log_('已记住可用模型：' + arr.slice(0, 4).join(', ') + (arr.length > 4 ? ' …' : ''));
+  } catch (e) {}
+}
+
+/**
+ * 问 Google：这把密钥到底能用哪些模型。
+ * GET /v1beta/models?key=... 不需要任何模型权限，只要能列出就说明密钥是通的。
+ * 返回推荐的模型短名数组（已过滤掉向量化、图像、语音等不能聊天的）。
+ */
+function fetchModelList_() {
+  var out = [];
+  try {
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models' +
+              '?key=' + CONFIG.GEMINI_API_KEY + '&pageSize=200';
+    var r = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    var code = r.getResponseCode();
+    if (code !== 200) {
+      var msg = r.getContentText('UTF-8');
+      log_('列模型失败 HTTP ' + code + '：' + msg.substring(0, 300));
+      log_('提示：' + geminiHint_(code, msg));
+      return out;
     }
+    var body = JSON.parse(r.getContentText('UTF-8'));
+    var arr = body.models || [];
+    log_('Google 返回 ' + arr.length + ' 个模型');
+    for (var i = 0; i < arr.length; i++) {
+      var m = arr[i] || {};
+      var full = String(m.name || '');
+      var name = full.replace(/^models\//, '');
+      var methods = m.supportedGenerationMethods || [];
+      out.push({
+        name: name,
+        display: m.displayName || '',
+        methods: methods,
+        canChat: methods.indexOf('generateContent') >= 0,
+        input: m.inputTokenLimit || 0,
+        output: m.outputTokenLimit || 0,
+        desc: m.description || ''
+      });
+    }
+  } catch (e) {
+    log_('列模型异常：' + e);
   }
+  return out;
+}
+
+/** 从模型清单里挑出适合聊天/写作的，按「好用程度」排序，返回短名数组 */
+function discoverModels_(allIn) {
+  var all = allIn || fetchModelList_();
+  if (!all.length) return [];
+
+  var cand = [];
+  for (var i = 0; i < all.length; i++) {
+    var m = all[i];
+    if (!m.canChat) continue;
+    // 排除不能做这段活的：向量化、重排、图像/视频生成、语音、纯视觉、实验性
+    if (/embedding|aqa|rerank|imagen|veo|image|tts|audio|live|native-audio|learnlm|gemma/i.test(m.name)) continue;
+    cand.push(m);
+  }
+  if (!cand.length) {
+    log_('这个密钥下没有任何支持 generateContent 的对话模型。');
+    return [];
+  }
+
+  // 打分：flash 优先（便宜快）、版本号大的优先、lite/小参数降权
+  for (var j = 0; j < cand.length; j++) {
+    var n = cand[j].name, sc = 0;
+    if (/flash/i.test(n)) sc += 40;
+    else if (/pro/i.test(n)) sc += 25;
+    var vm = n.match(/gemini-(\d+)\.(\d+)/);
+    if (vm) sc += parseInt(vm[1], 10) * 100 + parseInt(vm[2], 10) * 10;
+    if (/lite|8b|-mini/i.test(n)) sc -= 18;
+    if (/preview|exp/i.test(n)) sc -= 6;
+    if (/latest/i.test(n)) sc += 4;
+    cand[j].score = sc;
+  }
+  cand.sort(function (a, b) { return b.score - a.score; });
+
+  var names = [];
+  for (var k = 0; k < cand.length; k++) {
+    if (names.indexOf(cand[k].name) < 0) names.push(cand[k].name);
+  }
+  return names;
+}
+
+/** 调一次指定模型，成功返回 {ok:true,...}，失败返回 {ok:false, err:'…'} */
+function tryGeminiModel_(model, prompt) {
+  try {
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+              model + ':generateContent?key=' + CONFIG.GEMINI_API_KEY;
+    var payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      // maxOutputTokens 给大一些：2.5 系列模型的「思考」也计入输出额度，
+      // 给小了会出现正文被截断、只剩思考片段的情况。
+      generationConfig: { temperature: 0.35, maxOutputTokens: 4000, topP: 0.9 }
+    };
+    var r = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    var code = r.getResponseCode();
+    if (code !== 200) {
+      var msg = r.getContentText('UTF-8');
+      var hint = geminiHint_(code, msg);
+      log_('Gemini ' + model + ' HTTP ' + code + '：' + msg.substring(0, 260));
+      return { ok: false, err: model + ' → HTTP ' + code + (hint ? '，' + hint : '') };
+    }
+    var body = JSON.parse(r.getContentText('UTF-8'));
+    var text = extractGeminiText_(body);
+    if (!text) {
+      return { ok: false, err: model + ' → 返回空内容（finishReason=' +
+               (((body.candidates || [])[0] || {}).finishReason || '无') + '）' };
+    }
+    var parsed = parseGeminiLines_(text);
+    if (!parsed) {
+      log_('Gemini ' + model + ' 输出不符合格式，原文：' + text.substring(0, 300));
+      return { ok: false, err: model + ' → 输出格式不符（未解析出标签行）' };
+    }
+    log_('Gemini ' + model + ' OK，解析到 ' + parsed.length + ' 行');
+    return { ok: true, lines: parsed, model: model, error: '', err: '' };
+  } catch (e) {
+    log_('Gemini ' + model + ' 异常：' + e);
+    return { ok: false, err: model + ' → ' + String(e).substring(0, 120) };
+  }
+}
+
+/** 依次试一串模型，任一成功即返回；全失败返回 null */
+function runModelList_(list, prompt, errs) {
+  var cap = Math.min(list.length, 8);   // 最多试 8 个，避免卡住
+  for (var i = 0; i < cap; i++) {
+    var r = tryGeminiModel_(list[i], prompt);
+    if (r.ok) return r;
+    errs.push(r.err);
+  }
+  return null;
+}
+
+/**
+ * 主流程：先试「上次发现的 + CONFIG 里配的」；
+ * 全挂了就现场问一次 Google 有哪些模型能用，记住结果再试一轮。
+ * 这样模型改名/下线时脚本能自己恢复，不用人去改代码。
+ */
+function askGemini_(d, txt, asof, today) {
+  var prompt = buildPrompt_(d, txt, asof, today);
+  var errs = [];
+
+  // ① 候选：上次发现成功的排前面，再补上 CONFIG 里的
+  var list = [];
+  var cached = cachedModels_();
+  for (var i = 0; i < cached.length; i++) list.push(cached[i]);
+  for (var j = 0; j < CONFIG.GEMINI_MODELS.length; j++) {
+    if (list.indexOf(CONFIG.GEMINI_MODELS[j]) < 0) list.push(CONFIG.GEMINI_MODELS[j]);
+  }
+
+  var res = runModelList_(list, prompt, errs);
+  if (res) return res;
+
+  // ② 全失败 → 自动发现
+  log_('配置里的模型全都不可用，开始自动发现可用模型…');
+  var found = discoverModels_();
+  if (found.length) {
+    saveModels_(found);
+    var extra = [];
+    for (var k = 0; k < found.length; k++) {
+      if (list.indexOf(found[k]) < 0) extra.push(found[k]);
+    }
+    if (extra.length) {
+      log_('换用发现到的模型重试：' + extra.slice(0, 4).join(', '));
+      res = runModelList_(extra, prompt, errs);
+      if (res) return res;
+    }
+  } else {
+    errs.push('自动发现模型也失败（多半是密钥没启用 Generative Language API，见执行日志）');
+  }
+
   return { ok: false, lines: null, model: '', error: errs.join('；') };
 }
 
 /** 把常见的 HTTP 错误翻译成一句人话，直接写进邮件里方便排查 */
 function geminiHint_(code, msg) {
   var m = String(msg || '');
+
+  // 400：密钥本身有问题
   if (code === 400 && /API key not valid/i.test(m)) return '密钥无效，请去 AI Studio 重新复制';
+  if (code === 400 && /API key expired/i.test(m)) return '密钥已过期，去 AI Studio 新建一把';
   if (code === 400) return '请求参数被拒，多半是模型名不对';
-  if (code === 403) return '该密钥无权访问此模型，或未在项目里启用 Generative Language API';
-  if (code === 404) return '这个模型在你的账号下不存在，换 GEMINI_MODELS 里的其他名字';
+
+  // 403 有三种完全不同的原因，分开说，否则没法修
+  if (code === 403) {
+    if (/SERVICE_DISABLED|has not been used in project|it is disabled|enable it by visiting/i.test(m)) {
+      return '这把密钥所属的 Google Cloud 项目还没启用 Generative Language API。' +
+             '打开 https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com ' +
+             '→ 选同一个项目 → 点「启用」，等 1~2 分钟再试';
+    }
+    if (/API_KEY_SERVICE_BLOCKED|API_KEY_HTTP_REFERRER_BLOCKED|API_KEY_IP_ADDRESS_BLOCKED|requests to this API .* are blocked/i.test(m)) {
+      return '这把密钥设了「API 限制」，把 Generative Language API 排除在外了。' +
+             '去 https://console.cloud.google.com/apis/credentials 找到这把密钥 → ' +
+             '「API 限制」里勾上 Generative Language API，或改成「不限制密钥」';
+    }
+    if (/PERMISSION_DENIED|caller does not have permission|CONSUMER_INVALID|SERVICE_DISABLED_FOR_CONSUMER/i.test(m)) {
+      return '这个模型对你的账号或所在地区没有开放，换一个模型（跑 listGeminiModels() 能看到能用的）';
+    }
+    if (/billing|quota project/i.test(m)) {
+      return '这个项目没有绑定结算账号，免费额度用不了。去 Cloud 控制台绑卡后重试';
+    }
+    return '无权使用这个模型：先跑 listGeminiModels() 看你的密钥到底能用哪些；' +
+           '若一个都列不出来，多半是项目未启用 Generative Language API';
+  }
+
+  // 404：模型不存在 / 已下线
+  if (code === 404) return '模型不存在或已下线（跑 listGeminiModels() 看当前可用的名字）';
   if (code === 429) return '超出免费配额（每分钟或每天），明天会恢复';
   if (code === 500 || code === 503) return 'Google 侧临时故障，稍后自动重试即可';
   return '';
@@ -1253,7 +1426,9 @@ function testConnections() {
     } else {
       log_('   ❌ 全部模型都失败。逐条原因：');
       log_('      ' + g.error);
-      log_('   对照：400 密钥无效 / 403 无权或未启用 API / 404 模型名不存在 / 429 超配额');
+      log_('   对照：400 密钥无效 / 403 未启用 API 或密钥设了限制 / 404 模型已下线 / 429 超配额');
+      log_('   👉 下一步：运行 listGeminiModels()，它会直接问 Google 你的密钥能用哪些模型，');
+      log_('      并把能用的名字打出来。把结果里排第一的写进 CONFIG.GEMINI_MODELS 即可。');
       log_('   提示：AI 失败不影响发信，邮件会改用规则版总结并写明原因。');
     }
   }
@@ -1267,6 +1442,61 @@ function testConnections() {
   var ts = ScriptApp.getProjectTriggers();
   if (!ts.length) log_('      （无）');
   for (var t = 0; t < ts.length; t++) log_('      ' + ts[t].getHandlerFunction());
+}
+
+/**
+ * ①-补充 诊断专用：问 Google「这把密钥能用哪些模型」
+ * 模型报 403/404 时跑这个，比猜模型名快得多。
+ * 它只用 /v1beta/models 列表接口，不消耗生成额度。
+ */
+function listGeminiModels() {
+  log_('=== 问 Google：这把密钥能用哪些模型 ===');
+  log_('密钥指纹：' + (function (k) {
+    return k ? (k.substring(0, 6) + '…' + k.substring(k.length - 4) + '（' + k.length + ' 位）') : '（空）';
+  })(CONFIG.GEMINI_API_KEY));
+
+  var all = fetchModelList_();
+  if (!all.length) {
+    log_('');
+    log_('❌ 一个模型都列不出来。这通常意味着下面三种情况之一：');
+    log_('   1. 密钥所属的 Cloud 项目没启用 Generative Language API');
+    log_('      → https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com');
+    log_('   2. 密钥设了 API 限制，把 Generative Language API 挡在外面');
+    log_('      → https://console.cloud.google.com/apis/credentials');
+    log_('   3. 密钥本身无效或已过期 → https://aistudio.google.com/apikey 重新生成');
+    log_('');
+    log_('   修好之后重跑一次本函数，能列出模型就说明通了。');
+    return;
+  }
+
+  log_('');
+  log_('✅ 共 ' + all.length + ' 个模型。下面只列「能做对话/写作」的（支持 generateContent）：');
+  var chat = [];
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].canChat) chat.push(all[i]);
+  }
+  if (!chat.length) {
+    log_('   （没有）这把密钥下没有对话模型，只有向量化/图像之类的。');
+    return;
+  }
+  for (var j = 0; j < chat.length; j++) {
+    var m = chat[j];
+    var tag = /image/i.test(m.name) ? '　（图像生成，不参与推荐）' : '';
+    log_('   · ' + m.name +
+         (m.display ? '　[' + m.display + ']' : '') +
+         (m.output ? '　输出上限 ' + Math.round(m.output / 1000) + 'k' : '') + tag);
+  }
+
+  var rec = discoverModels_(all);
+  log_('');
+  log_('按「便宜快 + 版本新」排序，推荐顺序：');
+  for (var k = 0; k < Math.min(rec.length, 6); k++) log_('   ' + (k + 1) + '. ' + rec[k]);
+  log_('');
+  log_('把下面这行替换掉脚本顶部 CONFIG 里的 GEMINI_MODELS（复制即可）：');
+  log_("  GEMINI_MODELS: ['" + rec.slice(0, 3).join("', '") + "'],");
+  log_('');
+  log_('说明：脚本已经会自动发现，正常情况下不用手改 —— 这一步只是让你看清楚现状。');
+  log_('写进 CONFIG 的好处是省掉每次失败的探测请求。');
 }
 
 /** ② 立刻发一封看效果（跳过周末与去重，也不影响去重记录） */
