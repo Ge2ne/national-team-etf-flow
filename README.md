@@ -221,6 +221,7 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 refresh.py                            抓取 + 计算 + 生成报表的全部逻辑（约 1000 行）
 make_summary.py                       从 _etf_data.json 提炼 latest.json / llms.txt / snapshot.md
 gas-national-team-daily.gs            Google Apps Script 邮件脚本（每天早上发一封解读）
+复制邮件脚本.html                     打开即可一键复制上面这个脚本的页面（每次拉最新版）
 index.html                            已发布的自包含报表（由工作流自动生成并提交）
 .nojekyll                             空文件，关闭 Jekyll，否则下划线开头的文件不会被发布
 _etf_data.json                        完整原始数据（自动生成并提交，供下游读取）
@@ -245,6 +246,9 @@ README.md                             本文件
 这样两端的算法不会各写一套、慢慢漂移——改口径只改 Python 一处。
 
 ### 部署步骤
+
+> 想省事就直接开 **<https://wj624.github.io/national-team-etf-flow/复制邮件脚本.html>** ——
+> 那个页面每次都从仓库拉最新代码，点「复制全文」再去 Apps Script 里粘贴就行，不用下载文件。
 
 1. 打开 <https://script.google.com/home> → 左上「新项目」
 2. 项目名改成 **五、 国家队ETF流向**
