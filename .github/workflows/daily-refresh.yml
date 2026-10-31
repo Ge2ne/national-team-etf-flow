@@ -1,0 +1,52 @@
+name: 每日自动刷新国家队ETF报表
+
+on:
+  schedule:
+    # 每日固定刷新时刻(北京时间): 早盘加密 07:45~09:30 每15分钟一趟(覆盖"次日发布"), 下午 16:00, 晚间 23:00 兜底
+    # 数据未推进时 refresh.py 会沿用旧时间戳使输出字节不变, 工作流跳过提交(不产生冗余提交); 数据滞后时脚本会等待重试抓取
+    # cron 为 UTC(北京=UTC+8); 星期字段只用 * (每天), 禁止用 7
+    - cron: "45 23 * * *"    # 07:45 北京 每天
+    - cron: "0 0 * * *"      # 08:00 北京 每天
+    - cron: "15 0 * * *"     # 08:15 北京 每天
+    - cron: "30 0 * * *"     # 08:30 北京 每天
+    - cron: "45 0 * * *"     # 08:45 北京 每天
+    - cron: "0 1 * * *"      # 09:00 北京 每天
+    - cron: "15 1 * * *"     # 09:15 北京 每天
+    - cron: "30 1 * * *"     # 09:30 北京 每天
+    - cron: "0 8 * * *"      # 16:00 北京 每天
+    - cron: "0 15 * * *"     # 23:00 北京 每天
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 份额历史缓存已纳入仓库(_etf_shares_cache.json), checkout即得完整5年基线;
+      # refresh.py 每次增量拉取并写回, 下方提交阶段将更新后的缓存一并提交回推, 云端自持不依赖本地/actions-cache
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install akshare pandas requests
+
+      - name: 运行刷新脚本(拉份额/净值/K线, 计算净买卖, 生成报表)
+        run: python refresh.py
+
+      - name: 将生成报表复制为 index.html 并提交(含份额缓存回写)
+        run: |
+          cp "国家队ETF每日净买入卖出报表.html" index.html
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html _etf_shares_cache.json
+          if git diff --cached --quiet; then
+            echo "报表无变化, 跳过提交"
+          else
+            git commit -m "chore: 每日自动刷新国家队ETF净买卖报表 ($(date +%F\ %T) 北京+8)"
+            git push
+          fi
