@@ -32,12 +32,24 @@ jobs:
       - name: 运行刷新脚本(拉份额/净值/K线, 计算净买卖, 生成报表)
         run: python refresh.py
 
-      - name: 将生成报表复制为 index.html 并提交(含份额缓存回写)
+      # refresh.py 结束时会写 _etf_data.json(完整数据)。这里先提交它,
+      # 再由此提炼出下游要用的三份小文件(latest.json / llms.txt / snapshot.md)。
+      # 顺序不能反: make_summary.py 读的是 _etf_data.json。
+      - name: 提炼摘要(给 Apps Script 邮件脚本与大模型读)
+        run: |
+          if [ -f _etf_data.json ]; then
+            python make_summary.py
+          else
+            echo "_etf_data.json 缺失, 跳过摘要生成"
+          fi
+
+      - name: 将生成报表复制为 index.html 并提交(含份额缓存与摘要回写)
         run: |
           cp "国家队ETF每日净买入卖出报表.html" index.html
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html _etf_shares_cache.json
+          git add index.html _etf_shares_cache.json _etf_data.json
+          git add latest.json llms.txt snapshot.md 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "报表无变化, 跳过提交"
           else

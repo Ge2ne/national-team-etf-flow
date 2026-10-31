@@ -151,23 +151,71 @@ python refresh.py
 Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带锁文件、日志、无变化跳过推送），
 使用前把脚本里的仓库路径和 PAT 文件路径改成你自己的。
 
-## 九、发布为网页
+## 九、数据接口（给程序 / 给 AI 读）
+
+页面本身是 1.25MB 的自包含 HTML，数值全部埋在 JS 数组里（`IDX_K` / `IDX_Q` / `DATA_D` 等），
+剥掉脚本后只剩约 9,000 字符的口径说明——**AI 的网页抓取器读不到任何一个数字**。
+
+所以每次刷新会额外产出三份纯文本，供脚本和大模型直接使用：
+
+| 文件 | 大小 | 用途 |
+|---|---|---|
+| `_etf_data.json` | 约 2.5MB | 完整原始数据（`refresh.py` 生成）。含 11 类指数 5 年 K 线、23 只 ETF 逐日序列 |
+| `latest.json` | 约 9.5KB | **精简结论数**，供 Apps Script 邮件脚本读取 |
+| `llms.txt` | 约 8.3KB | 人话版摘要，可直接发给大模型 / 粘贴进对话框 |
+| `snapshot.md` | 约 8.3KB | 与 `llms.txt` 同内容，GitHub 上可渲染阅读 |
+
+直接访问：
+
+```text
+在线看板      https://wj624.github.io/national-team-etf-flow/
+给 AI 的摘要   https://wj624.github.io/national-team-etf-flow/llms.txt
+精简数据      https://wj624.github.io/national-team-etf-flow/latest.json
+全量数据      https://wj624.github.io/national-team-etf-flow/_etf_data.json
+```
+
+> 想要人看的图表版就用第一个；想让 AI 总结、或自己写脚本取数，用第二个/第三个。
+> `_etf_data.json` 有 2.5MB，一般不必直接下载。
+
+`latest.json` 里已经算好了这些结论，下游不用重算：
+
+| 字段 | 含义 |
+|---|---|
+| `today.net` | 当日全表净买卖（亿元，正=净买入） |
+| `today.pct` | 该数值在近 5 年样本中的历史分位 |
+| `today.rank_text` | 「史上第 N 大单日净买入」 |
+| `today.streak_days` / `streak_dir` / `streak_sum` | 连续同向天数与累计金额 |
+| `today.idx_chg` / `today.tag` | 当日中证全指涨跌，以及「越跌越买 / 顺势加仓 / 涨了就卖 / 下跌也在卖」判定 |
+| `windows` | 近 5 / 20 / 60 / 250 日累计 |
+| `mv` | 全表持仓市值、历史分位、近一年高低点 |
+| `cats[]` | 11 个指数类别的今日 / 近 5 日 / 近 20 日 / 倍量 |
+| `etfs[]` | 23 只 ETF 的今日 / 本周 / 本月 / 倍量 / 最新份额 |
+| `diverge.rows[]` | 最近 10 个交易日的「指数涨跌 × 净买卖」对照 |
+
+## 十、发布为网页
 
 1. 仓库 **Settings → Pages**，Source 选 `Deploy from a branch` → 分支 `main`、目录 `/`（根目录）。
 2. 访问 `https://<用户名>.github.io/<仓库名>/`。
 
 报表是**自包含**的：ECharts 优先内联本地文件，找不到时回退到 CDN 加载，所以只要有网就能正常看图表。
 
-## 十、文件说明
+## 十一、文件说明
 
 ```
 .github/workflows/daily-refresh.yml   GitHub Actions 定时刷新工作流
 refresh.py                            抓取 + 计算 + 生成报表的全部逻辑（约 1000 行）
+make_summary.py                       从 _etf_data.json 提炼 latest.json / llms.txt / snapshot.md
 index.html                            已发布的自包含报表（由工作流自动生成并提交）
+_etf_data.json                        完整原始数据（自动生成并提交，供下游读取）
+latest.json                           精简结论数（自动生成，约 9.5KB）
+llms.txt / snapshot.md                人话版摘要（自动生成，约 8.3KB）
 _etf_shares_cache.json                近 5 年份额历史 + 交易日历缓存（勿删）
 update_and_push.ps1                   Windows 计划任务用的本地刷新+推送脚本（可选）
 README.md                             本文件
 ```
+
+> `latest.json` / `llms.txt` / `snapshot.md` 都是**构建产物**，不要手改——下次刷新会被覆盖。
+> 要调整内容请改 `make_summary.py`，本地先跑 `python make_summary.py --check` 预览。
 
 ## 免责声明
 
