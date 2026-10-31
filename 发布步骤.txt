@@ -3,8 +3,9 @@
 ## 已就绪（本机）
 - index.html —— 自包含报表（网页）
 - refresh_national_team_etf.py（在上一级目录，本次已复制为 refresh.py）
-- .github/workflows/daily-refresh.yml —— GitHub Actions 每工作日 20 点自动刷新并提交
-- 本机已建 Windows 计划任务“国家队ETF每日刷新”（工作日 20:00 跑脚本）
+- .github/workflows/daily-refresh.yml —— GitHub Actions 每周一至周五 23:00（北京时间）自动刷新并提交
+  （cron 为 UTC，"0 15 * * 1-5" = 15:00 UTC = 北京 23:00 工作日）
+- 本机可选：Windows 计划任务跑 update_and_push.ps1（需先在脚本里填好仓库目录与 PAT 文件路径）
 
 ## 发布到 GitHub 只剩最后一步（需要你的凭据，任选其一）
 
