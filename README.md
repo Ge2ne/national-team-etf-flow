@@ -3,6 +3,7 @@
 追踪中央汇金重仓的 **23 只核心宽基 ETF** 的每日资金净买卖情况，并按跟踪指数归集，输出一份自包含 HTML 报表。
 
 - **在线报表**：https://wj624.github.io/national-team-etf-flow/
+   另一个版本：https://wwww1998.github.io/national-team-etf-flow/
 - **源码仓库**：https://github.com/wj624/national-team-etf-flow
 
 ---
