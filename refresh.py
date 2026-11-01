@@ -700,12 +700,29 @@ def render_html(p):
 
     _cat_opts = "".join('<option%s>%s</option>' % (' selected' if i == 0 else '', _n) for i, _n in enumerate(i_kl_names))
 
-    # 内联 ECharts，避免境外 CDN 在本机加载失败导致图表空白
-    _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
-    if os.path.exists(_EC_PATH) and os.path.getsize(_EC_PATH) > 100000:
-        _ec = io.open(_EC_PATH, encoding="utf-8").read().replace("</script>", "<\\/script>")
-        ECHARTS_HTML = "<script>" + _ec + "</script>"
-    else:
+    # 内联 ECharts，避免境外 CDN 在本机加载失败导致图表空白。
+    #
+    # 【2026-11-01 补】原来只有一条路径——原作者的 C:\Users\wxk11\... ——换任何一台机器
+    # （包括 GitHub Actions 的云端 runner）都不存在，于是永远走 else 分支、退回外链 CDN。
+    # 结果是：**云端产出的 index.html 图表其实不自包含**，打开时必须能访问
+    # registry.npmmirror.com；该 CDN 一旦不可达，所有图空白（数字表还在，图没有）。
+    # 这与「本机有、云端没有」是同一类问题，只是表现为「渲染依赖」而不是「数据依赖」。
+    #
+    # 现在改成三级查找，仓库根目录放了一份 5.5.0 本体（1.0MB）：
+    #   1) 原作者本机路径 —— 保留兼容，他自己机器上行为不变
+    #   2) 仓库根目录 echarts.min.js —— 云端 checkout 即得，任何机器都能自包含
+    #   3) 都找不到才退回外链 CDN（最后兜底，此时页面不自包含）
+    _EC_CANDS = [
+        r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js",
+        os.path.join(OUT_DIR, "echarts.min.js"),
+    ]
+    ECHARTS_HTML = None
+    for _ec_path in _EC_CANDS:
+        if os.path.exists(_ec_path) and os.path.getsize(_ec_path) > 100000:
+            _ec = io.open(_ec_path, encoding="utf-8").read().replace("</script>", "<\\/script>")
+            ECHARTS_HTML = "<script>" + _ec + "</script>"
+            break
+    if not ECHARTS_HTML:
         ECHARTS_HTML = ('<script src="https://registry.npmmirror.com/echarts/5.5.0/files/dist/echarts.min.js"></script>')
 
     etfs = sorted(p["etfs"], key=lambda e: e["month"])
