@@ -1,10 +1,87 @@
 # 中央汇金（国家队）核心宽基 ETF 每日净买入/净卖出报表
 
-追踪中央汇金重仓的 **23 只核心宽基 ETF** 的每日资金净买卖情况，并按跟踪指数归集，输出一份自包含 HTML 报表。
+追踪中央汇金重仓的 **23 只核心宽基 ETF**（归为 **11 个指数类别**）的每日资金净买卖，
+输出一份**自包含 HTML 报表**，图形与数据全部内联，断网也能看。
 
-- **在线报表**：https://wj624.github.io/national-team-etf-flow/
-   另一个版本：https://wwww1998.github.io/national-team-etf-flow/
+- **在线报表（点开即用）**：https://wj624.github.io/national-team-etf-flow/
+- **原版报表（上游 wwww1998）**：https://wwww1998.github.io/national-team-etf-flow/
 - **源码仓库**：https://github.com/wj624/national-team-etf-flow
+- **给 AI 的摘要**：https://wj624.github.io/national-team-etf-flow/llms.txt
+
+**一句话原理**：用 ETF 每日**份额变化 × 单位净值**，反推出当天有多少钱流进或流出（推导过程见第一节）。
+
+> 本仓库复制自 [wwww1998/national-team-etf-flow](https://github.com/wwww1998/national-team-etf-flow)。
+> **23 只标的、11 个类别、全部计算口径与原文一致**，改动集中在「怎么让它稳定、省资源地跑下去」。
+> 逐项对照见下一节。
+
+---
+
+## 和原版（wwww1998）有什么不同
+
+两个版本**看的是同一批数据、算的是同一个公式**，差别全在「怎么跑」和「跑完给谁用」。
+
+| 项目 | 原版（wwww1998） | 本版（wj624） |
+|---|---|---|
+| 在线地址 | <https://wwww1998.github.io/national-team-etf-flow/> | <https://wj624.github.io/national-team-etf-flow/> |
+| 每天跑几次 | **10 次**：07:45–09:30 每 15 分钟（8 趟）+ 16:00 + 23:00 | **1 次**：工作日 23:00 |
+| 单次耗时 | 中位 **9 分 43 秒**（近 22 次：最短 4 分、最长 69 分） | **7 分 33 秒**（实测） |
+| 每天总机时 | 约 **100 分钟** | 约 **8 分钟** |
+| 页面体积 | 1.26 MB | 2.19 MB |
+| 图表库 | **外链 CDN**，要能访问 npmmirror 才画得出图 | **内联进页面**，断网也能画 |
+| 仓库体积 | 9.91 MB | 1.61 MB |
+| 仓库文件数 | 7 个 | 16 个 |
+| 给 AI 的摘要 | 无 | `llms.txt` / `snapshot.md` / `latest.json` |
+| 每日邮件推送 | 无 | `gas-national-team-daily.gs`（可选） |
+| README | 1.7 KB | 本文件 |
+
+> **关于「仓库体积」这一行**：9.91 MB 和 1.61 MB 都是 GitHub 显示的值，**含全部历史提交**。
+> 原版 2026-08-25 建库、每天提交约 10 次，至今 1100+ 次运行；本版 2026-10-31 建库、每天 1 次。
+> 所以这个差距里既有「跑得少」，也有「还年轻」——单看工作区文件，本版其实更大
+> （7.38 MB vs 2.88 MB），因为多存了 `_etf_data.json`、三份 AI 摘要和 ECharts 本体。
+> 真正能长期拉开差距的是**提交频次低一个数量级**。
+
+### ① 每天 10 次 → 1 次
+
+原版把定时任务铺得很密：07:45–09:30 每 15 分钟一趟，再加 16:00 和 23:00，目的是「接住交易所**次日才发布**的份额」。
+
+本版只留工作日 23:00 一次。代价是最新数据日可能比当天晚一个交易日，**但历史不会丢**——
+增量窗口每次都回溯最近 12 天，下一次运行会自动补齐。运行次数从每年约 3650 次降到约 250 次，
+机时从每天约 100 分钟降到 8 分钟。
+
+对「一天只看一次」的使用习惯，这个取舍是划算的。如果你希望早上开盘前就能看到昨天的数据，
+把 cron 加回 07:45 和 09:30 两个时间点即可（见第七节）。
+
+### ② 图表从「外链」改成「内联」
+
+`refresh.py` 里 ECharts 的路径原本写死成原作者本机的一个绝对路径：
+
+```python
+_EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
+```
+
+除了他那台电脑，任何机器——**包括 GitHub 的云端 runner**——都找不到这个文件，于是自动退回外链
+`registry.npmmirror.com`。后果是：**页面的图并不自包含**，那个 CDN 一旦不通，所有图表空白
+（下方数字表格还在，图全没了）。
+
+实际上原版线上页面至今仍是外链状态：1.26 MB，带着一个指向 `registry.npmmirror.com` 的 `<script>`。
+
+本版把 **ECharts 5.5.0 原版**（1.0 MB）放进仓库，改成三级查找：
+
+1. 原作者本机路径（保留兼容，他本机行为不变）
+2. **仓库根目录的 `echarts.min.js`（新增，云端 checkout 即得）**
+3. 都找不到才退回 CDN（最后兜底）
+
+云端因此命中第二级，产出 **2.19 MB 的全内联页面，零外链、断网可用**。
+
+### ③ 补了给 AI 和给邮件用的下游产物
+
+原版只有 `index.html` 和份额缓存两样东西。本版多了 `make_summary.py`，每次刷新额外产出：
+
+- `latest.json`（9 KB）：算好的结论数，供程序 / 邮件脚本读
+- `llms.txt`（8 KB）：人话版摘要，可直接整段贴给大模型
+- `snapshot.md`（8 KB）：同上内容，GitHub 上可直接渲染阅读
+
+并配套一个 Google Apps Script 邮件脚本，工作日早上把结论发到邮箱（可选，见第十二节）。
 
 ---
 
@@ -124,6 +201,8 @@
 
 ### 为什么原来要跑 10 次，现在只跑 1 次够吗？
 
+> 这一节是对照表里「每天 10 次 → 1 次」那条的展开说明。
+
 原作者设置了早盘 07:45–09:30 每 15 分钟一趟，是为了接住交易所**次日才发布**的份额数据。
 改成"工作日 23:00 一次"的实际影响是：
 
@@ -141,6 +220,9 @@ pip install akshare pandas requests
 python refresh.py
 ```
 
+> 跑之前确认仓库根目录有 `echarts.min.js`（本仓库自带，clone 下来就有）。
+> 没有它也能跑，但产出的页面会退回外链 CDN、不再自包含。
+
 会生成三个产物：
 
 | 文件 | 说明 |
@@ -154,7 +236,7 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 ## 九、数据接口（给程序 / 给 AI 读）
 
-页面本身是 1.25MB 的自包含 HTML，数值全部埋在 JS 数组里（`IDX_K` / `IDX_Q` / `DATA_D` 等），
+页面本身是 2.19MB 的自包含 HTML（内含 ECharts 本体），数值全部埋在 JS 数组里（`IDX_K` / `IDX_Q` / `DATA_D` 等），
 剥掉脚本后只剩约 9,000 字符的口径说明——**AI 的网页抓取器读不到任何一个数字**。
 
 所以每次刷新会额外产出三份纯文本，供脚本和大模型直接使用：
@@ -182,11 +264,11 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 | 地址 | 状态 | Content-Type | 大小 |
 |---|---|---|---|
-| `index.html` | 200 | text/html | 1,252,493 B |
+| `index.html` | 200 | text/html | 2,245,733 B |
 | `latest.json` | 200 | application/json | 9,489 B |
 | `llms.txt` | 200 | text/plain | 8,280 B |
 | `snapshot.md` | 200 | text/markdown | 8,280 B |
-| `_etf_data.json` | 200 | application/json | 2,459,989 B |
+| `_etf_data.json` | 200 | application/json | 2,567,992 B |
 | `_etf_shares_cache.json` | 200 | application/json | 1,673,842 B |
 
 > ⚠️ **`.nojekyll` 不能删。** GitHub Pages 默认跑 Jekyll，会**静默排除所有以 `_` 开头的文件**，
@@ -213,17 +295,19 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 1. 仓库 **Settings → Pages**，Source 选 `Deploy from a branch` → 分支 `main`、目录 `/`（根目录）。
 2. 访问 `https://<用户名>.github.io/<仓库名>/`。
 
-报表是**自包含**的：ECharts 优先内联本地文件，找不到时回退到 CDN 加载，所以只要有网就能正常看图表。
+报表是**完全自包含**的：ECharts 本体（1.0 MB）已经放进仓库并内联进页面，不引用任何外部 CDN，
+**断网、离线、或者 CDN 挂了都不影响图表**。这也是本版与原版最直观的一处差别（详见开头对照表）。
 
 ## 十一、文件说明
 
 ```
 .github/workflows/daily-refresh.yml   GitHub Actions 定时刷新工作流
 refresh.py                            抓取 + 计算 + 生成报表的全部逻辑（约 1000 行）
+echarts.min.js                        ECharts 5.5.0 本体（1.0MB），构建时内联进页面，勿删
 make_summary.py                       从 _etf_data.json 提炼 latest.json / llms.txt / snapshot.md
 gas-national-team-daily.gs            Google Apps Script 邮件脚本（每天早上发一封解读）
 复制邮件脚本.html                     打开即可一键复制上面这个脚本的页面（每次拉最新版）
-index.html                            已发布的自包含报表（由工作流自动生成并提交）
+index.html                            已发布的自包含报表（由工作流自动生成并提交，约 2.2MB）
 .nojekyll                             空文件，关闭 Jekyll，否则下划线开头的文件不会被发布
 _etf_data.json                        完整原始数据（自动生成并提交，供下游读取）
 latest.json                           精简结论数（自动生成，约 9.5KB）
@@ -232,6 +316,9 @@ _etf_shares_cache.json                近 5 年份额历史 + 交易日历缓存
 update_and_push.ps1                   Windows 计划任务用的本地刷新+推送脚本（可选）
 README.md                             本文件
 ```
+
+> `echarts.min.js` 是**源文件不是产物**，别当垃圾清理掉。`refresh.py` 按
+> 「原作者本机路径 → 仓库里的这份 → CDN」三级查找，删了它云端就只能退回外链，图表又变回依赖网络。
 
 > `latest.json` / `llms.txt` / `snapshot.md` 都是**构建产物**，不要手改——下次刷新会被覆盖。
 > 要调整内容请改 `make_summary.py`，本地先跑 `python make_summary.py --check` 预览。
