@@ -7,15 +7,11 @@
 """
 import akshare as ak
 from datetime import datetime, timedelta, timezone
-import json, time, os, io, sys, shutil, requests, re, bisect
+import json, time, os, io, sys, shutil, requests, re
 
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORT = os.path.join(OUT_DIR, "国家队ETF每日净买入卖出报表.html")
 SHARES_CACHE = os.path.join(OUT_DIR, "_etf_shares_cache.json")
-
-# ---- 双源/数据完整性防线参数 ----
-EM_MAX_DEV = 0.20        # 份额合理性阈值：单日份额相对最近可信值偏离 >20% 判为异常（如 2026-11-02 的错误 301.99）
-SANITIZE_RECENT_N = 30   # 只对最近 N 个有效交易日剔除异常份额（不动多年历史）
 
 def gen_cal_days(start_d, end_d):
     """start_d..end_d 之间的工作日(周一~周五), 返回 YYYYMMDD 序列"""
@@ -81,62 +77,15 @@ def expected_latest_cut(trade_days=None):
         d -= timedelta(days=1)
     return int(d.strftime("%Y%m%d"))
 
-def _seen_codes(shares):
-    """历史缓存里出现过的标的集合（用于排除'从未上市'的标的，避免早期日期永远判不完整）"""
-    ever = set()
-    for row in shares.values():
-        ever |= set(row or {})
-    return ever
-
-def _last_plausible(shares, code, before_ds):
-    """before_ds 之前最近一个可信份额，作为兜底/异常校验的参考值"""
-    for d in sorted((x for x in shares if x < before_ds), reverse=True):
-        v = (shares.get(d) or {}).get(code)
-        if v:
-            return v
-    return None
-
-def sanitize_recent(shares, valid, n=SANITIZE_RECENT_N, max_dev=EM_MAX_DEV):
-    """剔除最近 N 个有效交易日里'份额异常'的值（相对上一可信值偏离 > max_dev），直接从 shares 删除（按缺失处理）。
-    目的：坏值（如 2026-11-02 沪市兜底写入的错误 510300=301.99）既不参与净值/净买卖计算，
-    也不会成为下一交易日的比较基准。返回被剔除的 (日期, 代码, 值, 参考值) 列表。"""
-    ds_list = sorted(valid)
-    if not ds_list:
-        return []
-    start = max(0, len(ds_list) - n)
-    last = {}
-    for ds in ds_list[:start]:          # 窗口起点之前：用历史值建立参考
-        for c, v in (shares.get(ds) or {}).items():
-            if v:
-                last[c] = v
-    dropped = []
-    for ds in ds_list[start:]:
-        row = shares.get(ds) or {}
-        for c in list(row.keys()):
-            v = row.get(c)
-            if not v:
-                continue
-            ref = last.get(c)
-            if ref and ref > 0 and abs(v / ref - 1.0) > max_dev:
-                dropped.append((ds, c, v, ref))
-                del row[c]
-            else:
-                last[c] = v
-    return dropped
-
 def sync_day_of(shares, valid):
-    """沪深两市份额'完整'的最近共同交易日；仅单边完整时退化为该单边最新完整日。
-    '完整' = 该市场所有已上市标的当日都有份额。缺任一标的的当日视为未完整，不参与展示，
-    避免 2026-11-02 那种「沪市只补到部分标的」的残行被当成有效交易日、算出假净买卖。"""
-    ever = _seen_codes(shares)
-    sh_codes = [c for c, _, m in TARGETS if m == "sh" and c in ever]
-    sz_codes = [c for c, _, m in TARGETS if m == "sz" and c in ever]
+    """沪深两市都有数据的最近共同交易日; 仅单边有数据时退化为该单边最新日"""
+    mkt_of = {c: m for c, _, m in TARGETS}
     sh, sz = set(), set()
     for ds in valid:
-        row = shares.get(ds) or {}
-        if sh_codes and all(row.get(c) for c in sh_codes):
+        cds = set(shares.get(ds, {}))
+        if any(mkt_of.get(c) == "sh" for c in cds):
             sh.add(ds)
-        if sz_codes and all(row.get(c) for c in sz_codes):
+        if any(mkt_of.get(c) == "sz" for c in cds):
             sz.add(ds)
     inter = sorted(sh & sz)
     if inter:
@@ -372,10 +321,8 @@ def load_shares(dates):
             deep_start = sz_have[0]
     return daily_shares, valid, deep_start
 
-def fetch_em_share(code, ref=None, max_dev=EM_MAX_DEV):
-    """东财实时总份额(份): push2 行情接口 f84=基金总份额. 云端可达, 用于上交所份额取数失败时的沪市兜底.
-    合理性校验: 若给出 ref(该标的最近可信份额), 单日偏离超过 max_dev 视为数据异常, 直接丢弃(返回 None)。
-    背景: 2026-11-02 云端兜底曾把 510300 写成 301.99 亿(真值 414.01 亿, 偏离 22.3%), 算出 -354.76 亿假净卖出。"""
+def fetch_em_share(code):
+    """东财实时总份额(份): push2 行情接口 f84=基金总份额. 云端可达, 用于上交所份额取数失败时的沪市兜底."""
     secid = ("1." if code.startswith(("5", "6")) else "0.") + code
     url = ("https://push2.eastmoney.com/api/qt/stock/get?invt=2&fltt=2"
            "&fields=f57,f84&secid=" + secid)
@@ -389,14 +336,7 @@ def fetch_em_share(code, ref=None, max_dev=EM_MAX_DEV):
             raise ValueError("no f84")
         return float(v)
 
-    v = retry(_get, tries=3, gap=2)
-    if v and ref and ref > 0:
-        dev = abs(v / ref - 1.0)
-        if dev > max_dev:
-            print("  东财兜底异常 %s: %.2f 亿 vs 参考 %.2f 亿 (偏离 %.1f%% > %.0f%%), 丢弃"
-                  % (code, v / 1e8, ref / 1e8, dev * 100, max_dev * 100), flush=True)
-            return None
-    return v
+    return retry(_get, tries=3, gap=2)
 
 def load_nav():
     nav = {}
@@ -441,43 +381,34 @@ def main():
             break
         time.sleep(FRESH_WAIT)
         shares, valid, deep_start = load_shares_cached(window, cache, trade_days)
-    # 防线②·异常份额剔除(已于 2026-11-03 停用): 复盘 20261102 事故后发现百分比阈值在本场景不可行——
-    # 本表追踪的正是"国家队大额申购", 汇金单日百亿买入会让份额跳升 20%~90% (如 510310: 121.57亿→228.86亿),
-    # 固定 20% 阈值会把真实暴涨连同后续参考链一起误删(实测误删 483 个正确值, 报表倒退至 2026-10-14)。
-    # 上交所数据本身为权威源, 污染源只有东财兜底(亦已停用), 故此防线不再需要。
-    _dropped = []
-    # 沪市最新交易日兜底(已于 2026-11-03 停用): 20261102 事故复盘结论——东财实时快照可能滞后数周
-    # (当日曾对 510300 返回 301.99 亿的陈旧值, 真实为 414.01 亿), 写入即产生假减持;
-    # 而完整性校验(sync_day_of) + "保留上一完整交易日"已能安全度过上交所源故障, 次日数据自愈。
+    # 沪市最新交易日兜底: 云端/个别环境访问上交所受限(fund_etf_scale_sse 常失败), 若最近已结束交易日缺沪份额,
+    # 用东财实时总份额(f84)补入, 保证沪深同步日能推进到最近交易日; 历史缺口待上交所接口恢复后由增量拉取回补。
+    # 仅当 exp 确为交易日时才兜底, 避免节假日(如国庆/中秋)被误填成"幽灵交易日"在K线图上留空。
     _sh_live = [c for c, _, _m in TARGETS if _m == "sh"]
     _exp_s = str(exp)
     _exp_is_trade = (not trade_days) or (_exp_s in trade_days)
-    if _sh_live and _exp_is_trade:
-        _row = shares.get(_exp_s) or {}
-        _sh_missing = [c for c in _sh_live if not _row.get(c)]
-        if _sh_missing:
-            print("沪市当日缺失 %d 只, 东财兜底已停用(20261102事故复盘), 保留上一完整交易日 %s"
-                  % (len(_sh_missing), cur), flush=True)
+    if _sh_live and _exp_is_trade and not any(shares.get(_exp_s, {}).get(c) for c in _sh_live):
+        _filled = 0
+        for _c in _sh_live:
+            try:
+                _p = fetch_em_share(_c)
+            except Exception:
+                _p = None
+            if _p:
+                shares.setdefault(_exp_s, {})[_c] = _p
+                _filled += 1
+        if _filled:
+            valid = sorted(set(valid) | {_exp_s})
+            print(f"沪市东财快照兜底: 补入 {_exp_s} 沪市 {_filled} 只份额", flush=True)
     with open(SHARES_CACHE, "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False)
     if not valid:
         print("未取到任何交易日份额数据"); return 1
     nav = load_nav()
 
-    # 缺口感知: 若上一可用份额日与当前日之间还隔着交易日(说明中间有日被剔除/未披露),
-    # 该日净买卖无法拆出单日值, 置 None 而不是误算成多日累计。
-    _td_sorted = sorted(trade_days) if trade_days else []
-    def _has_gap(a, b):
-        if not _td_sorted:
-            try:
-                return (datetime.strptime(b, "%Y%m%d") - datetime.strptime(a, "%Y%m%d")).days > 4
-            except Exception:
-                return False
-        i = bisect.bisect_right(_td_sorted, a)
-        return i < len(_td_sorted) and _td_sorted[i] < b
     daily = []
     for code, name, mkt in TARGETS:
-        prev = None; prev_ds = None; lnav = None; prev_nav = None
+        prev = None; lnav = None; prev_nav = None
         for ds in valid:
             v = shares.get(ds, {}).get(code)
             if v is None:
@@ -486,12 +417,7 @@ def main():
             if nn is not None:
                 prev_nav = lnav   # 上一有净值日的净值
                 lnav = nn
-            if prev is None or lnav is None:
-                net = None
-            elif prev_ds is not None and _has_gap(prev_ds, ds):
-                net = None        # 中间缺了交易日, 单日净买卖不可拆, 宁缺毋滥
-            else:
-                net = (v - prev) * lnav
+            net = (v - prev) * lnav if (prev is not None and lnav is not None) else None
             # 份额合并(折算)判定: 份额等比骤变 与 净值反向等比联动(乘积≈1) => 非实际申赎, 净买卖置0
             if prev is not None and v != prev and net is not None and prev_nav and lnav:
                 rs = v / prev          # 份额变化比(合并折半<1 / 拆分加倍>1)
@@ -501,7 +427,7 @@ def main():
                     net = 0.0
             daily.append({"d": ds, "c": code, "n": name, "m": mkt, "s": v,
                           "w": lnav, "f": net})
-            prev = v; prev_ds = ds
+            prev = v
         # 缺失份额时补全当日0? 不处理, 汇总时按实际值
 
     # 建立 日期->每条, 日期->合计
@@ -523,15 +449,21 @@ def main():
             per_cat[cat] = per_cat.get(cat, 0) + it["f"]
         cat_total[ds] = per_cat
 
-    # 展示日: 取「沪深两市份额都完整」的最近共同交易日(sync_day_of 按'该市场全部标的齐全'判定)。
-    # 不完整的当日一律回退, 宁可滞后一天, 也不把只补到部分标的的残行算成假净买卖。
-    cut = sync_day_of(shares, valid)
-    if not cut:
-        cut = dates_sorted[-1]
-    _ds_le = [d for d in dates_sorted if d <= cut]
-    cut = _ds_le[-1] if _ds_le else dates_sorted[-1]
+    # 沪深ETF申购数据公布时间不一致: 只有当沪、深两市都更新到同一交易日时, 才把该日作为最新展示日;
+    # 若两市最新公布日不同步, 则回退到两市都有数据的最近共同交易日(通常为前一天)。
+    mkt_of = {c: m for c, _, m in TARGETS}
+    sh_have, sz_have = set(), set()
+    for ds in dates_sorted:
+        codes = set(items_by.get(ds, {}) or {})
+        if any(mkt_of.get(c) == "sh" for c in codes):
+            sh_have.add(ds)
+        if any(mkt_of.get(c) == "sz" for c in codes):
+            sz_have.add(ds)
+    sync_days = sorted(sh_have & sz_have)
+    cut = sync_days[-1] if sync_days else dates_sorted[-1]
     if cut < dates_sorted[-1]:
-        print("沪深最新完整同步日回退到:", cut, "(原始最新:", dates_sorted[-1], ")", flush=True)
+        print("沪深最新公布日不同步, 展示回退到两市同步日:", cut,
+              "(两市最新: 沪=%s 深=%s)" % (sh_have and sorted(sh_have)[-1], sz_have and sorted(sz_have)[-1]), flush=True)
     dates_sorted = [d for d in dates_sorted if d <= cut]
     today = cut
     week_days = dates_sorted[-5:]
@@ -633,36 +565,6 @@ def main():
                 tot += s * w
         mv_total[ds] = round(tot / 1e8, 1)
     payload["mv_total"] = mv_total
-
-    # ------------------------------------------------------------------
-    # 双源交叉校验（与 etf-lsi 看板对账）：只比对/留痕，任何失败都不影响主报表
-    # 口径统一为「份额变化(亿份)」：本表 dsh 与 etf-lsi 的 per-ETF chg 天然可比
-    # ------------------------------------------------------------------
-    try:
-        import reconcile_lite as _rc
-        _my = {}
-        for _e in payload["etfs"]:
-            if _e["c"] in _rc.OVERLAP:
-                _my[_e["c"]] = _e.get("dsh", {})
-        _mine = _rc.build_payload("nt", f"{today[:4]}-{today[4:6]}-{today[6:]}", _my)
-        _peer = _rc.fetch_json(_rc.PEER_LSI)
-        _detail = _rc.compare(_mine, _peer)
-        _hist = _rc.update_history(os.path.join(OUT_DIR, "reconcile_history.json"), _detail)
-        with open(os.path.join(OUT_DIR, "reconcile.json"), "w", encoding="utf-8") as _f:
-            json.dump(_mine, _f, ensure_ascii=False)
-        payload["reconcile"] = {
-            "my_asof": _mine["asof"],
-            "peer_asof": (_peer or {}).get("asof"),
-            "peer_ok": bool(_peer),
-            "conflicts": [x for x in _detail if x["status"] == "conflict"],
-            "history": _rc.history_rows(_hist, 20),
-        }
-        print("[reconcile] 双源校验: 日=%s 对方=%s 分歧=%d条" %
-              (_mine["asof"], payload["reconcile"]["peer_asof"],
-               len(payload["reconcile"]["conflicts"])), flush=True)
-    except Exception as _ex:
-        print("[reconcile] 跳过(异常):", str(_ex)[:120], flush=True)
-        payload["reconcile"] = None
     return payload
 
 def escape_html(s):
@@ -677,10 +579,6 @@ def render_html(p):
     def cls(v):
         return "pos" if v >= 0 else "neg"
     dates = p["dates"]
-    # 双源校验：当天分歧集合（用于明细矩阵打标）
-    _rcp = p.get("reconcile") or {}
-    _conf_cat = {(x["group"], x["date"]) for x in (_rcp.get("conflicts") or [])}
-    _conf_code = {(x["code"], x["date"]) for x in (_rcp.get("conflicts") or [])}
     dt = {}
     for k, v in p["date_total"].items():
         kk = str(k)
@@ -871,18 +769,16 @@ def render_html(p):
     hot_html = ""
     mcol_headers = "".join(f"<th>{d[5:]}</th>" for d in hot_dates)
     # 单元格: 上行=净买卖金额(亿元,单位'亿'), 下行=倍量(单位'倍'); v=净买卖(亿), m=倍量
-    def _dm_cell(v, m=None, warn=False):
+    def _dm_cell(v, m=None):
         if v is None:
             return '<td class="r" style="color:var(--mut)">—</td>'
         if abs(v) < 0.001:
             top, c = "0", ""
         else:
             top, c = fnum(v, True) + "亿", cls(v)
-        _flag = ' <span title="双源校验分歧，疑似份额源故障" style="color:#d43d2a">⚠️</span>' if warn else ""
-        _attr = ' style="box-shadow:inset 0 0 0 1.5px #d43d2a"' if warn else ""
         if m is None:
-            return f'<td class="r {c}"{_attr}>{top}{_flag}</td>'
-        return f'<td class="r {c}"{_attr}>{top}{_flag}<div class="mult {cls(m)}">{m:+.2f}倍</div></td>'
+            return f'<td class="r {c}">{top}</td>'
+        return f'<td class="r {c}">{top}<div class="mult {cls(m)}">{m:+.2f}倍</div></td>'
     for e in etfs:
         ser = e["series"]
         bz = e.get("s2025", 0) * 0.001 if e.get("s2025", 0) > 0 else None
@@ -891,7 +787,7 @@ def render_html(p):
         for d in hot_dates:
             v = ser.get(d)
             m = (dsh.get(d) / bz) if (bz and dsh.get(d) is not None) else None
-            cells += _dm_cell(v, m, warn=((e["c"], d) in _conf_code))
+            cells += _dm_cell(v, m)
         hot_html += f"<tr><td><span class='mkt'>{e['m']}</span>{escape_html(e['n'])}</td>{cells}</tr>"
 
     # 同类指数归集 · 每日净买卖明细矩阵 (最近 HOT 个交易日)
@@ -915,7 +811,7 @@ def render_html(p):
         for d in hot_dates:
             v = cat_daily[cat].get(d)
             m = (v / cbz) if (cbz and v is not None) else None
-            cells += _dm_cell(v, m, warn=((cat, d) in _conf_cat))
+            cells += _dm_cell(v, m)
         cat_daily_html += f'<tr><td><b>{escape_html(cat)}</b><span class="code">{len(agg.get(cat, []))}只</span></td>{cells}</tr>'
     _all_mv = sum(e.get("s2025", 0) * e.get("n2025", 0) for e in etfs)
     _all_bz = _all_mv * 0.001 if _all_mv > 0 else None
@@ -983,56 +879,6 @@ def render_html(p):
 
     def fmt_dt(d):
         return f"{d[0:4]}-{d[5:7]}-{d[8:10]}"
-
-    # ---- 双源校验：当天分歧横幅 + 留痕表（无数据则整块不出现） ----
-    _rc_html = ""
-    _rcv = p.get("reconcile") or {}
-    if _rcv:
-        _cf = [x for x in (_rcv.get("conflicts") or []) if x["date"] == _rcv.get("my_asof")]
-        if _cf:
-            _items = "；".join(
-                "%s %s：本表 <b>%+.2f</b> 亿份 vs etf-lsi <b>%+.2f</b> 亿份" %
-                (x["group"], x["code"], x["mine"], x["peer"]) for x in _cf)
-            _rc_html += (
-                '<div class="card" style="border-left:4px solid #d43d2a;background:#fdecea">'
-                '<h2 style="color:#d43d2a">⚠️ 双源校验分歧 · %s</h2>'
-                '<div style="font-size:13px;line-height:1.8">%s。<br>'
-                '两源方向相反，疑似<b>上交所份额源当日故障</b>（本仓云端常连不上上交所而回退东方财富实时份额）。'
-                '<b>建议以 etf-lsi（腾讯源）为准</b>，并留意次日自动回补是否修正。</div></div>'
-                % (escape_html(_rcv["my_asof"]), _items))
-        elif _rcv.get("peer_ok"):
-            _rc_html += (
-                '<div class="card" style="border-left:4px solid #1f9d7b;background:#e6f6f0">'
-                '<h2 style="color:#1f9d7b">✅ 双源校验一致 · %s</h2>'
-                '<div style="font-size:13px;color:#4a5568">与 etf-lsi 在重叠标的（沪深300 四只 + 创业板 159915）上方向一致。</div></div>'
-                % escape_html(_rcv["my_asof"]))
-        else:
-            _rc_html += (
-                '<div class="card" style="border-left:4px solid #98a2b8;background:#f6f7f9">'
-                '<h2 style="color:#7a8194">⚪ 双源校验未完成</h2>'
-                '<div style="font-size:13px;color:#7a8194">本轮未取到 etf-lsi 对账数据（其约 21:17 运行，若当日未更新则跳过）。</div></div>')
-        _hs = _rcv.get("history") or []
-        if _hs:
-            _hrows = ""
-            for _r in _hs:
-                _st = _r.get("status")
-                _col = "#d43d2a" if _st == "conflict" else "#1f9d7b"
-                _mm = _r.get("last_mine", _r.get("orig_mine")) or 0
-                _pp = _r.get("last_peer", _r.get("orig_peer")) or 0
-                _hrows += ('<tr><td>%s</td><td>%s</td><td>%s</td>'
-                           '<td class="r">%+.2f</td><td class="r">%+.2f</td>'
-                           '<td style="color:%s;font-weight:600">%s</td></tr>'
-                           % (_r.get("date", ""), _r.get("group", ""), _r.get("code", ""),
-                              _mm, _pp, _col, _st))
-            _rc_html += (
-                '<div class="card"><h2>双源校验留痕（近 20 条 · 冲突永久保留）</h2>'
-                '<div style="overflow-x:auto"><table><thead><tr>'
-                '<th>日期</th><th>分组</th><th>代码</th><th>本表(亿份)</th><th>etf-lsi(亿份)</th><th>状态</th>'
-                '</tr></thead><tbody>%s</tbody></table></div>'
-                '<div style="color:var(--mut);font-size:11px;margin-top:8px">'
-                '「分歧」= 当日两源方向相反；「已修正」= 后续任一方回补后方向转为一致。'
-                '口径为份额变化(亿份)：沪深300 四只可逐只对账，创业板仅 159915 两站一致。</div></div>'
-                % _hrows)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8">
@@ -1129,7 +975,6 @@ svg text{{fill:var(--mut);font-size:10px}}
       <div class="vl {cls(ytd_tot)}">{fnum(ytd_tot, True)}</div>
       <div class="tg {cls(ytd_tot)}">{ "净买入" if ytd_tot>=0 else "净卖出" } 亿元</div></div>
   </div>
-  {_rc_html}
   <div class="card"><h2>全部品种 · 每日净买卖合计（近21个交易日，亿元）</h2>
     <div class="bars">{bars}</div>
     <div class="svgwrap"><div class="chartbox">
