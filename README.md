@@ -10,6 +10,8 @@
 
 - **在线报表（点开即用）**：https://wj624.github.io/national-team-etf-flow/
 
+- **看板中心（聚合入口）**：https://wj-dashboards.pages.dev/
+
 - **原版报表（上游 wwww1998）**：https://wwww1998.github.io/national-team-etf-flow/
 
 - **源码仓库**：https://github.com/wj624/national-team-etf-flow
