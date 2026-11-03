@@ -441,44 +441,23 @@ def main():
             break
         time.sleep(FRESH_WAIT)
         shares, valid, deep_start = load_shares_cached(window, cache, trade_days)
-    # 防线②·异常份额剔除: 最近 SANITIZE_RECENT_N 个有效交易日里, 相对上一可信值偏离 > EM_MAX_DEV 的份额
-    # 直接删除、按缺失处理——既不参与净买卖计算, 也不会成为下一交易日的比较基准（坏值二次污染）。
-    _dropped = sanitize_recent(shares, valid, n=SANITIZE_RECENT_N, max_dev=EM_MAX_DEV)
-    if _dropped:
-        for _d, _c, _v, _r in _dropped[:8]:
-            print("  剔除异常份额 %s %s: %.2f 亿 (参考 %.2f 亿, 偏离 %.1f%%)"
-                  % (_d, _c, _v / 1e8, _r / 1e8, abs(_v / _r - 1.0) * 100), flush=True)
-        print("  共剔除 %d 个异常份额, 相关交易日按缺失处理" % len(_dropped), flush=True)
-        valid = sorted(d for d in valid if shares.get(d))
-    # 沪市最新交易日兜底: 上交所份额取数失败时, 用东财实时总份额(f84)只补齐"缺失的"沪市标的, 不覆盖已有值。
-    # 两道防线:
-    #   防线①·合理性: 兜底值相对该标的最近可信份额偏离 > EM_MAX_DEV 直接丢弃(见 fetch_em_share);
-    #   防线①·完整性: 只有补齐后"沪市当日所有标的齐全"才采纳; 否则整日放弃、退回上一完整交易日, 绝不写入半行数据。
-    # 仅当 exp 确为交易日时才兜底, 避免节假日(如国庆/中秋)被误填成"幽灵交易日"在K线图上留空。
+    # 防线②·异常份额剔除(已于 2026-11-03 停用): 复盘 20261102 事故后发现百分比阈值在本场景不可行——
+    # 本表追踪的正是"国家队大额申购", 汇金单日百亿买入会让份额跳升 20%~90% (如 510310: 121.57亿→228.86亿),
+    # 固定 20% 阈值会把真实暴涨连同后续参考链一起误删(实测误删 483 个正确值, 报表倒退至 2026-10-14)。
+    # 上交所数据本身为权威源, 污染源只有东财兜底(亦已停用), 故此防线不再需要。
+    _dropped = []
+    # 沪市最新交易日兜底(已于 2026-11-03 停用): 20261102 事故复盘结论——东财实时快照可能滞后数周
+    # (当日曾对 510300 返回 301.99 亿的陈旧值, 真实为 414.01 亿), 写入即产生假减持;
+    # 而完整性校验(sync_day_of) + "保留上一完整交易日"已能安全度过上交所源故障, 次日数据自愈。
     _sh_live = [c for c, _, _m in TARGETS if _m == "sh"]
     _exp_s = str(exp)
     _exp_is_trade = (not trade_days) or (_exp_s in trade_days)
     if _sh_live and _exp_is_trade:
-        _row = shares.setdefault(_exp_s, {})
-        _missing = [c for c in _sh_live if not _row.get(c)]
-        if _missing:
-            _got = {}
-            for _c in _missing:
-                _ref = _last_plausible(shares, _c, _exp_s)
-                try:
-                    _p = fetch_em_share(_c, ref=_ref)
-                except Exception:
-                    _p = None
-                if _p:
-                    _got[_c] = _p
-            _merged = dict(_row); _merged.update(_got)
-            _still = [c for c in _sh_live if not _merged.get(c)]
-            if not _still:
-                _row.update(_got)
-                valid = sorted(set(valid) | {_exp_s})
-                print(f"沪市东财快照兜底: 补入 {_exp_s} 缺失 {len(_got)} 只(已过合理性校验), 沪市当日已完整", flush=True)
-            else:
-                print(f"沪市东财快照兜底: {_exp_s} 仍缺 {len(_still)} 只或含异常值, 放弃兜底, 保留上一完整交易日", flush=True)
+        _row = shares.get(_exp_s) or {}
+        _sh_missing = [c for c in _sh_live if not _row.get(c)]
+        if _sh_missing:
+            print("沪市当日缺失 %d 只, 东财兜底已停用(20261102事故复盘), 保留上一完整交易日 %s"
+                  % (len(_sh_missing), cur), flush=True)
     with open(SHARES_CACHE, "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False)
     if not valid:
