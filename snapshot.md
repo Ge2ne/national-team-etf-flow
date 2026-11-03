@@ -1,6 +1,6 @@
 # 国家队 ETF 净买卖 · 数据摘要
 
-> 数据日：2026-11-02（周一）　数据时间戳 2026-11-02 23:14　本摘要生成于 2026-11-03 02:52
+> 数据日：2026-11-02（周一）　数据时间戳 2026-11-02 23:14　本摘要生成于 2026-11-03 03:10
 > 在线看板：https://wj624.github.io/national-team-etf-flow/
 > 机器可读：https://wj624.github.io/national-team-etf-flow/latest.json
 
