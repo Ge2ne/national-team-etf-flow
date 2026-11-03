@@ -728,13 +728,27 @@ def render_html(p):
 
     _cat_opts = "".join('<option%s>%s</option>' % (' selected' if i == 0 else '', _n) for i, _n in enumerate(i_kl_names))
 
-    # 内联 ECharts，避免境外 CDN 在本机加载失败导致图表空白
-    _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
-    if os.path.exists(_EC_PATH) and os.path.getsize(_EC_PATH) > 100000:
-        _ec = io.open(_EC_PATH, encoding="utf-8").read().replace("</script>", "<\\/script>")
-        ECHARTS_HTML = "<script>" + _ec + "</script>"
-    else:
+    # 内联 ECharts，避免 CDN 不可达导致图表空白。三级查找:
+    #   ① 原作者本机绝对路径(兼容他本机, 行为不变)
+    #   ② 仓库根目录 echarts.min.js(随仓库分发, 云端 checkout 即得 -> 页面自包含, 零外链)
+    #   ③ 以上都没有才退回 CDN(最后兜底)
+    _EC_CANDS = [
+        r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js",
+        os.path.join(OUT_DIR, "echarts.min.js"),
+    ]
+    ECHARTS_HTML = None
+    for _p in _EC_CANDS:
+        try:
+            if os.path.exists(_p) and os.path.getsize(_p) > 100000:
+                _ec = io.open(_p, encoding="utf-8").read().replace("</script>", "<\\/script>")
+                ECHARTS_HTML = "<script>" + _ec + "</script>"
+                print("ECharts 内联来源:", _p, flush=True)
+                break
+        except Exception as _e:
+            print("ECharts 本地副本读取失败:", _p, str(_e)[:60], flush=True)
+    if not ECHARTS_HTML:
         ECHARTS_HTML = ('<script src="https://registry.npmmirror.com/echarts/5.5.0/files/dist/echarts.min.js"></script>')
+        print("ECharts 未找到本地副本, 回退 CDN 外链", flush=True)
 
     etfs = sorted(p["etfs"], key=lambda e: e["month"])
 
