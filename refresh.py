@@ -12,6 +12,9 @@ import json, time, os, io, sys, shutil, requests, re
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORT = os.path.join(OUT_DIR, "国家队ETF每日净买入卖出报表.html")
 SHARES_CACHE = os.path.join(OUT_DIR, "_etf_shares_cache.json")
+# 同源镜像兜底: 与本站同源(均为上交所份额数据)的另一份部署, 其份额缓存用于本地取数失败/取不全时的整行兜底。
+# 注意这是"镜像"不是"独立源"——两站取的是同一份上交所数据, 只用于解决"本仓云端连不上上交所"的问题。
+MIRROR_CACHE_URL = "https://raw.githubusercontent.com/wwww1998/national-team-etf-flow/main/_etf_shares_cache.json"
 
 def gen_cal_days(start_d, end_d):
     """start_d..end_d 之间的工作日(周一~周五), 返回 YYYYMMDD 序列"""
@@ -321,22 +324,40 @@ def load_shares(dates):
             deep_start = sz_have[0]
     return daily_shares, valid, deep_start
 
-def fetch_em_share(code):
-    """东财实时总份额(份): push2 行情接口 f84=基金总份额. 云端可达, 用于上交所份额取数失败时的沪市兜底."""
-    secid = ("1." if code.startswith(("5", "6")) else "0.") + code
-    url = ("https://push2.eastmoney.com/api/qt/stock/get?invt=2&fltt=2"
-           "&fields=f57,f84&secid=" + secid)
-    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"}
-
-    def _get():
-        j = requests.get(url, headers=headers, timeout=20).json()
-        d = j.get("data") or {}
-        v = d.get("f84")
-        if v is None:
-            raise ValueError("no f84")
-        return float(v)
-
-    return retry(_get, tries=3, gap=2)
+def fetch_mirror_row(ds, codes):
+    """同源镜像兜底: 从同源仓库(wwww1998)的份额缓存读取指定交易日的整行数据。
+    安全约束(宁缺勿错):
+      1. 该日必须存在于镜像缓存中(日期精确匹配, 不接受"最近一天"顶替);
+      2. 镜像整行必须齐全——除本表标的齐备外, 该行代码数须达到完整行量级, 防止镜像自身也是半行;
+      3. 任一条件不满足即返回 None, 由调用方退回"上一完整交易日"。
+    返回值: {code: 份额(份)} 或 None。任何异常都只打印日志, 不阻断主流程。"""
+    try:
+        r = requests.get(MIRROR_CACHE_URL, timeout=25,
+                         headers={"User-Agent": "Mozilla/5.0", "Cache-Control": "no-cache"})
+        r.raise_for_status()
+        row = ((r.json().get("shares") or {}).get(str(ds))) or {}
+        if not row:
+            print("  镜像兜底: 镜像缓存无 %s, 跳过" % ds, flush=True)
+            return None
+        if len(row) < 100:      # 完整行通常数百个代码; 明显偏少视为半行, 拒绝
+            print("  镜像兜底: %s 行仅 %d 个代码, 疑似半行, 拒绝" % (ds, len(row)), flush=True)
+            return None
+        got = {}
+        for c in codes:
+            try:
+                v = float(row[c])
+            except Exception:
+                v = 0
+            if v > 0:
+                got[c] = v
+        if len(got) != len(codes):
+            print("  镜像兜底: %s 行缺 %s, 拒绝"
+                  % (ds, ",".join([c for c in codes if c not in got][:5])), flush=True)
+            return None
+        return got
+    except Exception as e:
+        print("  镜像兜底失败:", str(e)[:90], flush=True)
+        return None
 
 def load_nav():
     nav = {}
@@ -381,25 +402,32 @@ def main():
             break
         time.sleep(FRESH_WAIT)
         shares, valid, deep_start = load_shares_cached(window, cache, trade_days)
-    # 沪市最新交易日兜底: 云端/个别环境访问上交所受限(fund_etf_scale_sse 常失败), 若最近已结束交易日缺沪份额,
-    # 用东财实时总份额(f84)补入, 保证沪深同步日能推进到最近交易日; 历史缺口待上交所接口恢复后由增量拉取回补。
+    # 沪市最新交易日兜底(同源镜像): 云端常连不上上交所(fund_etf_scale_sse 失败), 若最近已结束交易日
+    # 沪市份额缺失或不齐, 从【同源镜像仓库】读取同一交易日的整行份额补齐。
+    # 设计原则: 宁缺勿错——镜像行必须整行齐全才采纳; 否则丢弃该日半行数据, 让同步日停留在上一完整交易日,
+    # 绝不写入"用不可靠替代源凑出来的值"(20261102 事故复盘: 东财快照返回陈旧值导致假减持, 已彻底移除该路径)。
     # 仅当 exp 确为交易日时才兜底, 避免节假日(如国庆/中秋)被误填成"幽灵交易日"在K线图上留空。
     _sh_live = [c for c, _, _m in TARGETS if _m == "sh"]
     _exp_s = str(exp)
     _exp_is_trade = (not trade_days) or (_exp_s in trade_days)
-    if _sh_live and _exp_is_trade and not any(shares.get(_exp_s, {}).get(c) for c in _sh_live):
-        _filled = 0
-        for _c in _sh_live:
-            try:
-                _p = fetch_em_share(_c)
-            except Exception:
-                _p = None
-            if _p:
-                shares.setdefault(_exp_s, {})[_c] = _p
-                _filled += 1
-        if _filled:
-            valid = sorted(set(valid) | {_exp_s})
-            print(f"沪市东财快照兜底: 补入 {_exp_s} 沪市 {_filled} 只份额", flush=True)
+    if _sh_live and _exp_is_trade:
+        _row = shares.get(_exp_s) or {}
+        _missing = [c for c in _sh_live if not _row.get(c)]
+        if _missing:
+            _mir = fetch_mirror_row(_exp_s, _sh_live)
+            if _mir:
+                shares.setdefault(_exp_s, {}).update(_mir)
+                valid = sorted(set(valid) | {_exp_s})
+                print("同源镜像兜底: 补入 %s 沪市 %d 只(镜像整行齐全)" % (_exp_s, len(_mir)), flush=True)
+            else:
+                _still = [c for c in _sh_live if not (shares.get(_exp_s) or {}).get(c)]
+                if _still:
+                    # 沪市不齐且镜像不可用: 整段沪市一起丢弃(而不是只丢缺的那几只), 否则残留的几只
+                    # 仍会被 sync_day_of 算作"沪市当日有数据"而推进页面, 产生半行报表(20261102 即此形态)。
+                    for _c in _sh_live:
+                        shares.get(_exp_s, {}).pop(_c, None)
+                    print("沪市 %s 缺 %d 只且镜像不可用: 不写半行, 保留上一完整交易日"
+                          % (_exp_s, len(_still)), flush=True)
     with open(SHARES_CACHE, "w", encoding="utf-8") as f:
         json.dump(cache, f, ensure_ascii=False)
     if not valid:
@@ -700,29 +728,12 @@ def render_html(p):
 
     _cat_opts = "".join('<option%s>%s</option>' % (' selected' if i == 0 else '', _n) for i, _n in enumerate(i_kl_names))
 
-    # 内联 ECharts，避免境外 CDN 在本机加载失败导致图表空白。
-    #
-    # 【2026-11-01 补】原来只有一条路径——原作者的 C:\Users\wxk11\... ——换任何一台机器
-    # （包括 GitHub Actions 的云端 runner）都不存在，于是永远走 else 分支、退回外链 CDN。
-    # 结果是：**云端产出的 index.html 图表其实不自包含**，打开时必须能访问
-    # registry.npmmirror.com；该 CDN 一旦不可达，所有图空白（数字表还在，图没有）。
-    # 这与「本机有、云端没有」是同一类问题，只是表现为「渲染依赖」而不是「数据依赖」。
-    #
-    # 现在改成三级查找，仓库根目录放了一份 5.5.0 本体（1.0MB）：
-    #   1) 原作者本机路径 —— 保留兼容，他自己机器上行为不变
-    #   2) 仓库根目录 echarts.min.js —— 云端 checkout 即得，任何机器都能自包含
-    #   3) 都找不到才退回外链 CDN（最后兜底，此时页面不自包含）
-    _EC_CANDS = [
-        r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js",
-        os.path.join(OUT_DIR, "echarts.min.js"),
-    ]
-    ECHARTS_HTML = None
-    for _ec_path in _EC_CANDS:
-        if os.path.exists(_ec_path) and os.path.getsize(_ec_path) > 100000:
-            _ec = io.open(_ec_path, encoding="utf-8").read().replace("</script>", "<\\/script>")
-            ECHARTS_HTML = "<script>" + _ec + "</script>"
-            break
-    if not ECHARTS_HTML:
+    # 内联 ECharts，避免境外 CDN 在本机加载失败导致图表空白
+    _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
+    if os.path.exists(_EC_PATH) and os.path.getsize(_EC_PATH) > 100000:
+        _ec = io.open(_EC_PATH, encoding="utf-8").read().replace("</script>", "<\\/script>")
+        ECHARTS_HTML = "<script>" + _ec + "</script>"
+    else:
         ECHARTS_HTML = ('<script src="https://registry.npmmirror.com/echarts/5.5.0/files/dist/echarts.min.js"></script>')
 
     etfs = sorted(p["etfs"], key=lambda e: e["month"])
