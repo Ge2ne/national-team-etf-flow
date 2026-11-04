@@ -5,9 +5,49 @@
 每次运行: 重新拉取沪深两市 ETF 份额与净值, 计算每日净买卖, 生成自包含HTML报表
 净买入/净卖出 = (当日份额 - 前一日份额) × 当日单位净值 (正=净买入, 负=净卖出)
 """
-import akshare as ak
 from datetime import datetime, timedelta, timezone
 import json, time, os, io, sys, shutil, requests, re
+import pandas as pd
+
+# 数据源统一走 a-stock-api Worker（份额/净值/交易日历）；深交所规模直连官方 xlsx（见 _szse_scale）
+API_BASE = "https://a-stock-api.wj4020410.workers.dev"
+
+def _api_get(path, params=None, timeout=60):
+    """GET a-stock-api 端点，返回 JSON。"""
+    r = requests.get(API_BASE + path, params=params, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+def _szse_scale(start, end):
+    """深交所基金规模(日频, ETF) — 直连官方 xlsx，等价于原 akshare.fund_scale_daily_szse。
+    start/end 为 YYYYMMDD；返回 [{date:'YYYYMMDD', code:'6位', shares:份}]。日期区间≤6个月。"""
+    import random
+    params = {
+        "SHOWTYPE": "xlsx", "CATALOGID": "scsj_fund_jjgm", "TABKEY": "tab1",
+        "txtStart": f"{start[:4]}-{start[4:6]}-{start[6:]}",
+        "txtEnd": f"{end[:4]}-{end[4:6]}-{end[6:]}",
+        "jjlb": "ETF", "random": str(random.random()),
+    }
+    r = requests.get("https://www.szse.cn/api/report/ShowReport", params=params, headers={
+        "Host": "www.szse.cn",
+        "Referer": "https://www.szse.cn/market/fund/volume/etf/index.html",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/132",
+    }, timeout=60)
+    r.raise_for_status()
+    df = pd.read_excel(io.BytesIO(r.content), engine="openpyxl").dropna(how="all")
+    if df.empty:
+        return []
+    df = df.rename(columns={"基金规模(份)": "基金份额"})
+    out = []
+    for _, row in df.iterrows():
+        try:
+            dd = pd.to_datetime(row.get("日期")).strftime("%Y%m%d")
+            code = str(int(float(row.get("基金代码")))).zfill(6)
+            v = float(str(row.get("基金份额")).replace(",", ""))
+        except Exception:
+            continue
+        out.append({"date": dd, "code": code, "shares": v})
+    return out
 
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORT = os.path.join(OUT_DIR, "国家队ETF每日净买入卖出报表.html")
@@ -58,8 +98,8 @@ def load_trade_calendar(cache):
     if days and days[-1] >= today:
         return set(days)
     try:
-        df = ak.tool_trade_date_hist_sina()
-        days = sorted({str(x)[:10].replace("-", "") for x in df["trade_date"]})
+        j = _api_get("/api/trade-calendar", {"start": "2010-01-01"})
+        days = sorted({str(x)[:10].replace("-", "") for x in (j.get("data") or [])})
         if days:
             cache["trade_days"] = {"days": days, "end": days[-1]}
             print("交易日历已更新: %s ~ %s (共%d个交易日)" % (days[0], days[-1], len(days)), flush=True)
@@ -286,12 +326,15 @@ def load_shares(dates):
     valid = []
     for ds in dates:
         try:
-            df = retry(lambda ds=ds: ak.fund_etf_scale_sse(date=ds))
-            if df is None or len(df) == 0:
+            j = retry(lambda ds=ds: _api_get("/api/etf-shares",
+                     {"exchange": "SH", "date": f"{ds[:4]}-{ds[4:6]}-{ds[6:]}"}))
+            rows = (j or {}).get("data") or []
+            if not rows:
                 continue
-            for _, row in df.iterrows():
+            for row in rows:
                 try:
-                    daily_shares[ds][str(row.get("基金代码")).zfill(6)] = float(row.get("基金份额"))
+                    # Worker 返回 shares_10k(万份)，×10000 转「份」，与原 akshare 口径一致
+                    daily_shares[ds][str(row.get("code")).zfill(6)] = float(row.get("shares_10k")) * 10000.0
                 except Exception:
                     pass
             valid.append(ds)
@@ -305,19 +348,15 @@ def load_shares(dates):
         for i in range(0, len(sz_days), CH):
             s = sz_days[i]; e = sz_days[min(i + CH - 1, len(sz_days) - 1)]
             try:
-                sdf = retry(lambda s=s, e=e: ak.fund_scale_daily_szse(start_date=s, end_date=e, symbol="ETF"))
+                srows = retry(lambda s=s, e=e: _szse_scale(s, e))
             except Exception as ex:
                 print(f"  深批 fail {s}~{e}: {str(ex)[:50]}", flush=True); continue
-            if sdf is None or len(sdf) == 0:
+            if not srows:
                 continue
-            for _, row in sdf.iterrows():
-                dd = str(row.get("日期"))[:10].replace("-", "")
-                try:
-                    code = str(row.get("基金代码")).zfill(6); v = float(row.get("基金份额"))
-                except Exception:
-                    continue
+            for row in srows:
+                dd = row["date"]; code = row["code"]
                 if code in sz_codes:
-                    daily_shares.setdefault(dd, {})[code] = v
+                    daily_shares.setdefault(dd, {})[code] = row["shares"]
         sz_have = sorted(d for d, m in daily_shares.items() if any(c in m for c in sz_codes))
         if sz_have:
             valid = sorted(set(valid) | set(sz_have))
@@ -363,12 +402,12 @@ def load_nav():
     nav = {}
     for code, _, _ in TARGETS:
         try:
-            info = retry(lambda c=code: ak.fund_open_fund_info_em(symbol=c, indicator="单位净值走势"))
+            j = retry(lambda c=code: _api_get("/api/fund-nav", {"code": c}))
             m = {}
-            for _, row in info.iterrows():
-                d = str(row.get("净值日期"))[:10].replace("-", "")
+            for row in (j.get("data") or []):
+                d = str(row.get("date"))[:10].replace("-", "")
                 try:
-                    m[d] = float(row.get("单位净值"))
+                    m[d] = float(row.get("nav"))
                 except Exception:
                     pass
             nav[code] = m
