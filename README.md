@@ -45,31 +45,18 @@
 
 
 | 项目 | 原版（wwww1998） | 本版（wj624） |
-
 |---|---|---|
-
 | 在线地址 | <https://wwww1998.github.io/national-team-etf-flow/> | <https://wj624.github.io/national-team-etf-flow/> |
-
 | 每天跑几次 | **10 次**：07:45–09:30 每 15 分钟（8 趟）+ 16:00 + 23:00 | **1 次**：工作日 23:00 |
-
 | 单次耗时 | 中位 **9 分 43 秒**（近 22 次：最短 4 分、最长 69 分） | **7 分 33 秒**（实测） |
-
 | 每天总机时 | 约 **100 分钟** | 约 **8 分钟** |
-
 | 页面体积 | 1.04 MB（外链版，实测 1,090,799 字节） | **2.02 MB**（内联版，实测 2,119,925 字节） |
-
 | 图表库 | **外链 CDN**，要能访问 npmmirror 才画得出图 | **内联进页面**，断网也能画 |
-
 | 沪市取数失败时 | 用东财实时快照凑数，可能写入陈旧值 | **读同源仓库整行镜像**，不齐就停在上一交易日 |
-
 | 仓库体积 | 9.91 MB | 1.61 MB |
-
 | 仓库文件数 | 7 个 | 16 个 |
-
 | 给 AI 的摘要 | 无 | `llms.txt` / `snapshot.md` / `latest.json` |
-
 | 每日邮件推送 | 无 | `gas-national-team-daily.gs`（可选） |
-
 | README | 1.7 KB | 本文件 |
 
 
@@ -230,19 +217,12 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 
 
 | 模块 | 说明 |
-
 | --- | --- |
-
 | **KPI 卡片** | 最新交易日 / 近一周 / 近一月的合计净买卖（亿元） |
-
 | **每日净买卖合计** | 近 21 个交易日的柱状图，红=净买入，绿=净卖出 |
-
 | **累计持仓金额** | 最长约 3 年的折线，按当前份额 × 净值估算的持仓市值，悬停看当日值 |
-
 | **中证全指 K 线 × 净买卖联动** | 上图 K 线、下图净买卖柱，鼠标悬停两图联动，用来对照"指数涨跌 ↔ 资金进出" |
-
 | **同类指数归集汇总** | 把跟踪同一指数的多只 ETF 加总（如 4 只沪深300ETF 合成一行），含最新份额与持仓市值 |
-
 | **逐日净买卖明细** | 最近 10 个交易日的矩阵，每格上行是金额、下行是"倍量" |
 
 
@@ -444,13 +424,9 @@ Worker 会把上交所的偶发失败包装成 `200 + data: []`（同时在响�
 
 
 | 想要的时间 | cron 写法 | 含义 |
-
 | --- | --- | --- |
-
 | 每天 23:00 | `0 15 * * *` | 每天 |
-
 | 工作日 23:00 | `0 15 * * 1-5` | 周一至周五（当前设置） |
-
 | 工作日 08:00 + 23:00 | `0 0 * * 1-5` 和 `0 15 * * 1-5` | 两个时间点 |
 
 
@@ -514,13 +490,9 @@ python refresh.py
 
 
 | 文件 | 说明 |
-
 | --- | --- |
-
 | `国家队ETF每日净买入卖出报表.html` | 主报表（中文文件名） |
-
 | `report_latest.html` | 同内容的 ASCII 文件名副本，供 Windows 计划任务等 ANSI 环境安全引用 |
-
 | `_etf_data.json` | 中间数据，便于二次分析 |
 
 
@@ -546,15 +518,10 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 
 | 文件 | 大小 | 用途 |
-
 |---|---|---|
-
 | `_etf_data.json` | 约 2.5MB | 完整原始数据（`refresh.py` 生成）。含 11 类指数 5 年 K 线、23 只 ETF 逐日序列 |
-
 | `latest.json` | 约 9.5KB | **精简结论数**，供 Apps Script 邮件脚本读取 |
-
 | `llms.txt` | 约 8.3KB | 人话版摘要，可直接发给大模型 / 粘贴进对话框 |
-
 | `snapshot.md` | 约 8.3KB | 与 `llms.txt` 同内容，GitHub 上可渲染阅读 |
 
 
@@ -588,19 +555,12 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 
 | 地址 | 状态 | Content-Type | 大小 |
-
 |---|---|---|---|
-
 | `index.html` | 200 | text/html | 2,245,733 B |
-
 | `latest.json` | 200 | application/json | 9,489 B |
-
 | `llms.txt` | 200 | text/plain | 8,280 B |
-
 | `snapshot.md` | 200 | text/markdown | 8,280 B |
-
 | `_etf_data.json` | 200 | application/json | 2,567,992 B |
-
 | `_etf_shares_cache.json` | 200 | application/json | 1,673,842 B |
 
 
@@ -618,27 +578,16 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 
 | 字段 | 含义 |
-
 |---|---|
-
 | `today.net` | 当日全表净买卖（亿元，正=净买入） |
-
 | `today.pct` | 该数值在近 5 年样本中的历史分位 |
-
 | `today.rank_text` | 「史上第 N 大单日净买入」 |
-
 | `today.streak_days` / `streak_dir` / `streak_sum` | 连续同向天数与累计金额 |
-
 | `today.idx_chg` / `today.tag` | 当日中证全指涨跌，以及「越跌越买 / 顺势加仓 / 涨了就卖 / 下跌也在卖」判定 |
-
 | `windows` | 近 5 / 20 / 60 / 250 日累计 |
-
 | `mv` | 全表持仓市值、历史分位、近一年高低点 |
-
 | `cats[]` | 11 个指数类别的今日 / 近 5 日 / 近 20 日 / 倍量 |
-
 | `etfs[]` | 23 只 ETF 的今日 / 本周 / 本月 / 倍量 / 最新份额 |
-
 | `diverge.rows[]` | 最近 10 个交易日的「指数涨跌 × 净买卖」对照 |
 
 
@@ -830,17 +779,11 @@ README.md                             本文件
 
 
 | 日志里出现 | 含义 | 处理 |
-
 |---|---|---|
-
 | `reported as leaked` | 密钥已被判定泄露、永久作废 | 只能新建一把，`setGeminiKey()` 重新设置 |
-
 | `SERVICE_DISABLED` | 密钥所属项目没启用 Generative Language API | 去控制台启用，或**直接新建一把**（AI Studio 新建的会自动开好） |
-
 | `API_KEY_SERVICE_BLOCKED` | 密钥设了 API 限制 | 控制台去掉限制，或新建 |
-
 | `PERMISSION_DENIED` 且无上述字样 | 该模型对你未开放 | 换模型；脚本本身也会自动发现可用模型 |
-
 | `共 N 个模型` | 通了 | 末尾会打印推荐的 `GEMINI_MODELS` 行 |
 
 
@@ -866,19 +809,12 @@ README.md                             本文件
 
 
 | 字段 | 默认 | 说明 |
-
 |---|---|---|
-
 | `RECEIVER_EMAIL` | 已填 | 收件人，多个用英文逗号分隔 |
-
 | `TRIGGER_HOUR` / `TRIGGER_MINUTE` | 8 / 30 | 发信时刻（改完要重跑 `installDailyTrigger()`） |
-
 | `WITH_GEMINI` | `true` | 改 `false` 就不调大模型，直接用规则版总结（省配额、更快） |
-
 | `WEEKDAYS_ONLY` | `true` | 改 `false` 周末也发 |
-
 | `SKIP_IF_UNCHANGED` | `true` | 改 `false` 数据没变也照发 |
-
 | `DRY_RUN` | `false` | 改 `true` 只打印 HTML 不发信 |
 
 
