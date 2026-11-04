@@ -32,7 +32,7 @@ jobs:
           python-version: "3.11"
 
       - name: 安装依赖
-        run: pip install akshare pandas requests
+        run: pip install pandas requests openpyxl
 
       - name: 运行刷新脚本(拉份额/净值/K线, 计算净买卖, 生成报表)
         run: python refresh.py
