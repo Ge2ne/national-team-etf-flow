@@ -289,27 +289,40 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 
 ## 四、数据来源
 
+> 2026-11 起**不再依赖 AKShare**。份额 / 净值 / 交易日历改由自建的
+> [wj624/a-stock-api](https://github.com/wj624/a-stock-api) Worker 统一代理
+> （`https://a-stock-api.wj4020410.workers.dev`），深市份额则在仓库内直连交易所官方 xlsx。
+> 原因：AKShare 内部 `http.get` **既无 timeout 也无重试**，且 GitHub runner 的共享出口 IP 会被上交所限流，
+> 换个出口 IP（Cloudflare）才是解法。
 
-
-| 数据 | 来源 | 接口 |
-
+| 数据 | 来源 | 取数方式 |
 | --- | --- | --- |
-
-| 沪市 ETF 份额 | 上交所 | AKShare `fund_etf_scale_sse`（逐日） |
-
-| 深市 ETF 份额 | 深交所 | AKShare `fund_scale_daily_szse`（区间批量） |
-
-| 基金单位净值 | 天天基金 | AKShare `fund_open_fund_info_em` |
-
+| 沪市 ETF 份额 | 上交所 | Worker `/api/etf-shares?exchange=SH&date=YYYY-MM-DD`（逐日） |
+| 深市 ETF 份额 | 深交所 | 仓库内直连 `www.szse.cn/api/report/ShowReport` 的 **xlsx**（区间批量，`CATALOGID=scsj_fund_jjgm`） |
+| 基金单位净值 | 天天基金 | Worker `/api/fund-nav?code=XXXXXX`（东财 pingzhongdata） |
+| A 股交易日历 | 上证指数 K 线派生 | Worker `/api/trade-calendar` |
 | 中证全指 K 线 | 东方财富（主）/ 腾讯（备） | `push2his` / `web.ifzq.gtimg.cn` |
-
-| A 股交易日历 | 新浪 | AKShare `tool_trade_date_hist_sina` |
-
 | 沪市份额兜底（**仅在取数失败时**） | 同源仓库镜像 | `raw.githubusercontent.com` 上 `wwww1998/national-team-etf-flow` 的 `_etf_shares_cache.json` |
 
 > 东方财富只用于**指数 K 线**，不再参与份额计算。份额兜底改用同源镜像，原因见第五节第 4 条。
 
+**单位约定（错一个数量级会静默毁掉全部份额指标）**
 
+- 上交所接口原始字段 `TOT_VOL` 单位是**万份**；Worker 返回 `shares_10k`（万份），本仓库需 **× 10000** 换成「份」。
+- 深交所 xlsx 的 `基金规模(份)` 本身已是「份」，**不得再乘**。
+- 深交所该接口 `SHOWTYPE=JSON` 会返回 HTTP 500，**只有 xlsx 可用**，因此仓库里用 `openpyxl` 解析。
+
+**已知风险：Worker 返回空表 ≠ 当天没数据**
+
+Worker 会把上交所的偶发失败包装成 `200 + data: []`（同时在响应里带 `upstream_error` 字段说明原因）。
+本仓库目前遇到空表就按「这天没份额」处理，会退化成 westock 旧值 —— **不会产生假数据**，但会丢掉 T+0 精度。
+若要更稳，可参照 `wj624/etf-lsi` 的做法：**空表必须用直连 `query.sse.com.cn` 复核一次**再接。
+
+**上游变了怎么办**
+
+本仓库只消费 Worker 的 HTTP 契约，不消费 AKShare。同步上游、验证、部署的完整流程见
+`wj624/a-stock-api` 仓库 `README.md`（内含**给 AI 的同步提示词**与 Runbook）。
+只要 `/api/etf-shares`、`/api/fund-nav`、`/api/trade-calendar` 的**字段名与单位不变**，本仓库无需改动。
 
 ## 五、脚本做了哪些防错校准
 
@@ -331,7 +344,7 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 
    防止节假日被兜底数据填成空柱子污染 X 轴。
 
-4. **沪市兜底：同源镜像 + 宁缺勿错**。云端经常访问不了上交所接口（`fund_etf_scale_sse` 失败），
+4. **沪市兜底：同源镜像 + 宁缺勿错**。云端访问上交所接口偶有失败（Worker 也会被限流，重试 3 次仍有残次），
 
    此时从**同源仓库的份额缓存**（`wwww1998/national-team-etf-flow` 的 `_etf_shares_cache.json`）
 
@@ -482,7 +495,7 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 
 ```bash
 
-pip install akshare pandas requests
+pip install pandas requests openpyxl
 
 python refresh.py
 
