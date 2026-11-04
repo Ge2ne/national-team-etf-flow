@@ -45,19 +45,12 @@
 
 
 | 项目 | 原版（wwww1998） | 本版（wj624） |
-|---|---|---|
 | 在线地址 | <https://wwww1998.github.io/national-team-etf-flow/> | <https://wj624.github.io/national-team-etf-flow/> |
-| 每天跑几次 | **10 次**：07:45–09:30 每 15 分钟（8 趟）+ 16:00 + 23:00 | **1 次**：工作日 23:00 |
 | 单次耗时 | 中位 **9 分 43 秒**（近 22 次：最短 4 分、最长 69 分） | **7 分 33 秒**（实测） |
-| 每天总机时 | 约 **100 分钟** | 约 **8 分钟** |
 | 页面体积 | 1.04 MB（外链版，实测 1,090,799 字节） | **2.02 MB**（内联版，实测 2,119,925 字节） |
-| 图表库 | **外链 CDN**，要能访问 npmmirror 才画得出图 | **内联进页面**，断网也能画 |
 | 沪市取数失败时 | 用东财实时快照凑数，可能写入陈旧值 | **读同源仓库整行镜像**，不齐就停在上一交易日 |
-| 仓库体积 | 9.91 MB | 1.61 MB |
 | 仓库文件数 | 7 个 | 16 个 |
-| 给 AI 的摘要 | 无 | `llms.txt` / `snapshot.md` / `latest.json` |
 | 每日邮件推送 | 无 | `gas-national-team-daily.gs`（可选） |
-| README | 1.7 KB | 本文件 |
 
 
 
@@ -170,11 +163,8 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 原因：云端连不上上交所 → 旧逻辑回退东财实时快照 → 取到 301.99 亿份的陈旧份额（真值 414.01）→ 算出假减持。
 
 | | 原版 | 本版 |
-|---|---|---|
 | 取数失败时 | 东财实时快照（可能陈旧） | 同源仓库整行镜像 |
-| 镜像也不可用 | — | **停在上一完整交易日**，不写半行 |
 | 最坏结果 | 报表出现错误数字 | 报表晚一天更新 |
-
 一句话：**宁可少一天，不写错一个数**。这是两版在「数据准确性」上的关键差别。
 代价是兜底依赖对方仓库存在——就算哪天没了，结果也只是停更一天，不会算错。
 
@@ -217,13 +207,9 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 
 
 | 模块 | 说明 |
-| --- | --- |
 | **KPI 卡片** | 最新交易日 / 近一周 / 近一月的合计净买卖（亿元） |
-| **每日净买卖合计** | 近 21 个交易日的柱状图，红=净买入，绿=净卖出 |
 | **累计持仓金额** | 最长约 3 年的折线，按当前份额 × 净值估算的持仓市值，悬停看当日值 |
-| **中证全指 K 线 × 净买卖联动** | 上图 K 线、下图净买卖柱，鼠标悬停两图联动，用来对照"指数涨跌 ↔ 资金进出" |
 | **同类指数归集汇总** | 把跟踪同一指数的多只 ETF 加总（如 4 只沪深300ETF 合成一行），含最新份额与持仓市值 |
-| **逐日净买卖明细** | 最近 10 个交易日的矩阵，每格上行是金额、下行是"倍量" |
 
 
 
@@ -276,13 +262,9 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 > 换个出口 IP（Cloudflare）才是解法。
 
 | 数据 | 来源 | 取数方式 |
-| --- | --- | --- |
 | 沪市 ETF 份额 | 上交所 | Worker `/api/etf-shares?exchange=SH&date=YYYY-MM-DD`（逐日） |
-| 深市 ETF 份额 | 深交所 | 仓库内直连 `www.szse.cn/api/report/ShowReport` 的 **xlsx**（区间批量，`CATALOGID=scsj_fund_jjgm`） |
 | 基金单位净值 | 天天基金 | Worker `/api/fund-nav?code=XXXXXX`（东财 pingzhongdata） |
-| A 股交易日历 | 上证指数 K 线派生 | Worker `/api/trade-calendar` |
 | 中证全指 K 线 | 东方财富（主）/ 腾讯（备） | `push2his` / `web.ifzq.gtimg.cn` |
-| 沪市份额兜底（**仅在取数失败时**） | 同源仓库镜像 | `raw.githubusercontent.com` 上 `wwww1998/national-team-etf-flow` 的 `_etf_shares_cache.json` |
 
 > 东方财富只用于**指数 K 线**，不再参与份额计算。份额兜底改用同源镜像，原因见第五节第 4 条。
 
@@ -424,11 +406,8 @@ Worker 会把上交所的偶发失败包装成 `200 + data: []`（同时在响�
 
 
 | 想要的时间 | cron 写法 | 含义 |
-| --- | --- | --- |
 | 每天 23:00 | `0 15 * * *` | 每天 |
-| 工作日 23:00 | `0 15 * * 1-5` | 周一至周五（当前设置） |
 | 工作日 08:00 + 23:00 | `0 0 * * 1-5` 和 `0 15 * * 1-5` | 两个时间点 |
-
 
 
 > 注意：GitHub 的 cron 用 UTC，且受调度拥挤影响可能延后几分钟到几十分钟，属正常现象；
@@ -490,11 +469,8 @@ python refresh.py
 
 
 | 文件 | 说明 |
-| --- | --- |
 | `国家队ETF每日净买入卖出报表.html` | 主报表（中文文件名） |
-| `report_latest.html` | 同内容的 ASCII 文件名副本，供 Windows 计划任务等 ANSI 环境安全引用 |
 | `_etf_data.json` | 中间数据，便于二次分析 |
-
 
 
 Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带锁文件、日志、无变化跳过推送），
@@ -518,11 +494,8 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 
 | 文件 | 大小 | 用途 |
-|---|---|---|
 | `_etf_data.json` | 约 2.5MB | 完整原始数据（`refresh.py` 生成）。含 11 类指数 5 年 K 线、23 只 ETF 逐日序列 |
-| `latest.json` | 约 9.5KB | **精简结论数**，供 Apps Script 邮件脚本读取 |
 | `llms.txt` | 约 8.3KB | 人话版摘要，可直接发给大模型 / 粘贴进对话框 |
-| `snapshot.md` | 约 8.3KB | 与 `llms.txt` 同内容，GitHub 上可渲染阅读 |
 
 
 
@@ -555,13 +528,9 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 
 | 地址 | 状态 | Content-Type | 大小 |
-|---|---|---|---|
 | `index.html` | 200 | text/html | 2,245,733 B |
-| `latest.json` | 200 | application/json | 9,489 B |
 | `llms.txt` | 200 | text/plain | 8,280 B |
-| `snapshot.md` | 200 | text/markdown | 8,280 B |
 | `_etf_data.json` | 200 | application/json | 2,567,992 B |
-| `_etf_shares_cache.json` | 200 | application/json | 1,673,842 B |
 
 
 
@@ -578,17 +547,11 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 
 | 字段 | 含义 |
-|---|---|
 | `today.net` | 当日全表净买卖（亿元，正=净买入） |
-| `today.pct` | 该数值在近 5 年样本中的历史分位 |
 | `today.rank_text` | 「史上第 N 大单日净买入」 |
-| `today.streak_days` / `streak_dir` / `streak_sum` | 连续同向天数与累计金额 |
 | `today.idx_chg` / `today.tag` | 当日中证全指涨跌，以及「越跌越买 / 顺势加仓 / 涨了就卖 / 下跌也在卖」判定 |
-| `windows` | 近 5 / 20 / 60 / 250 日累计 |
 | `mv` | 全表持仓市值、历史分位、近一年高低点 |
-| `cats[]` | 11 个指数类别的今日 / 近 5 日 / 近 20 日 / 倍量 |
 | `etfs[]` | 23 只 ETF 的今日 / 本周 / 本月 / 倍量 / 最新份额 |
-| `diverge.rows[]` | 最近 10 个交易日的「指数涨跌 × 净买卖」对照 |
 
 
 
@@ -659,15 +622,10 @@ README.md                             本文件
 ### 出问题时先看这几行日志
 
 | 日志关键字 | 含义 | 要不要管 |
-|---|---|---|
 | `数据新鲜度: 最新同步日=… 期望=… 正常` | 展示日已是最新交易日 | 正常 |
-| `数据新鲜度: … 滞后, 稍后重试` | 数据源未发布或取数失败，正在等 150 秒重试 | 连续 2 次仍滞后才需关注 |
 | `同源镜像兜底: 补入 … 沪市 15 只(镜像整行齐全)` | 上交所取数失败，已用镜像补齐 | 正常，数据可信 |
-| `沪市 … 缺 N 只且镜像不可用: 不写半行, 保留上一完整交易日` | 主源与镜像都没拿到，报表停在上一交易日 | 次日再看，通常自动补齐 |
 | `镜像兜底: … 行仅 N 个代码, 疑似半行, 拒绝` | 镜像自己也没跑完，被安全校验拦下 | 正常，属预期保护 |
-| `ECharts 内联来源: …/echarts.min.js` | 命中仓库内副本，页面零外链 | 正常 |
 | `ECharts 未找到本地副本, 回退 CDN 外链` | `echarts.min.js` 丢失或被清理 | 需处理：恢复该文件 |
-
 
 
 ## 十二、每天早上收一封邮件（可选）
@@ -729,15 +687,10 @@ README.md                             本文件
 
 
    | 顺序 | 函数 | 作用 |
-
    |---|---|---|
-
    | ① | `testConnections()` | 体检：数据源通不通、密钥有没有、还剩多少发信额度 |
-
    | ② | `listGeminiModels()` | 可选。列出你的密钥能用哪些模型；只有 AI 报错时才需要跑 |
-
    | ③ | `previewNow()` | 立刻发一封到邮箱，看实际效果 |
-
    | ④ | `installDailyTrigger()` | 装定时器：每天 08:30 自动跑 |
 
 
@@ -779,13 +732,9 @@ README.md                             本文件
 
 
 | 日志里出现 | 含义 | 处理 |
-|---|---|---|
 | `reported as leaked` | 密钥已被判定泄露、永久作废 | 只能新建一把，`setGeminiKey()` 重新设置 |
-| `SERVICE_DISABLED` | 密钥所属项目没启用 Generative Language API | 去控制台启用，或**直接新建一把**（AI Studio 新建的会自动开好） |
 | `API_KEY_SERVICE_BLOCKED` | 密钥设了 API 限制 | 控制台去掉限制，或新建 |
-| `PERMISSION_DENIED` 且无上述字样 | 该模型对你未开放 | 换模型；脚本本身也会自动发现可用模型 |
 | `共 N 个模型` | 通了 | 末尾会打印推荐的 `GEMINI_MODELS` 行 |
-
 
 
 ### 会主动不发的情况
@@ -809,13 +758,9 @@ README.md                             本文件
 
 
 | 字段 | 默认 | 说明 |
-|---|---|---|
 | `RECEIVER_EMAIL` | 已填 | 收件人，多个用英文逗号分隔 |
-| `TRIGGER_HOUR` / `TRIGGER_MINUTE` | 8 / 30 | 发信时刻（改完要重跑 `installDailyTrigger()`） |
 | `WITH_GEMINI` | `true` | 改 `false` 就不调大模型，直接用规则版总结（省配额、更快） |
-| `WEEKDAYS_ONLY` | `true` | 改 `false` 周末也发 |
 | `SKIP_IF_UNCHANGED` | `true` | 改 `false` 数据没变也照发 |
-| `DRY_RUN` | `false` | 改 `true` 只打印 HTML 不发信 |
 
 
 
@@ -828,6 +773,135 @@ README.md                             本文件
 > 并在邮件里写明是哪个模型、报了什么错、怎么排查。降级版的结论来自同一批数字，只是措辞不如 AI 自然。
 
 
+
+## 十三、给 AI 的维护提示词
+
+> 这一章是写给「下一次接手这个仓库的 AI」的操作手册。人类读者可以跳过；但只要你的任务涉及改代码、
+> 加 ETF、改调度、修数据，**请先读完 13.1～13.4 再动手**，13.5 是可整段复制给 AI 的提示词。
+
+### 13.1 仓库速览：哪个能改、哪个碰了就坏事
+
+| 文件 | 性质 | 说明 |
+| `refresh.py` | **源码**（约 1000 行） | 抓份额 / 净值 / K 线 → 算净买卖 → 渲染整页 HTML。所有逻辑都在这里 |
+| `gas-national-team-daily.gs` | **源码** | Google Apps Script 邮件脚本，每天早上读 `latest.json` 发一封解读邮件 |
+| `_etf_shares_cache.json` | **数据资产，勿删** | 近 5 年份额历史 + 交易日历缓存（约 1.7 MB），每次运行增量写回并提交 |
+| `latest.json` / `llms.txt` / `snapshot.md` | 产物 | 给邮件脚本和大模型读的精简版，**不要手改**，要改内容去改 `make_summary.py` |
+| `.nojekyll` | 必需的空文件 | 关闭 Jekyll，否则 `_etf_data.json` 这类下划线开头的文件不会被发布 |
+
+### 13.2 数据链路与单位（错一个数量级会静默毁掉全部指标）
+
+```
+沪市份额  ── a-stock-api Worker /api/etf-shares?exchange=SH&date=…  (逐日，shares_10k = 万份 → ×10000)
+深市份额  ── 仓库内直连 www.szse.cn/api/report/ShowReport 的 xlsx  (基金规模(份) 已是份 → 不许再乘)
+单位净值  ── Worker /api/fund-nav?code=XXXXXX  (东财 pingzhongdata)
+交易日历  ── Worker /api/trade-calendar
+指数 K 线 ── 东财 push2his（主）/ 腾讯 web.ifzq.gtimg.cn（备）
+沪市兜底  ── githubusercontent 上 wwww1998/national-team-etf-flow 的 _etf_shares_cache.json（仅失败时）
+```
+
+- 本仓库**只消费 Worker 的 HTTP 契约**，不消费 AKShare。上游同步、验证、部署看
+  [`wj624/a-stock-api` 的 README](https://github.com/wj624/a-stock-api/blob/main/README.md)（内含可复制给 AI 的同步提示词与 Runbook）。
+  只要三个端点的**字段名与单位不变**，本仓库一行都不用改。
+- 依赖只有 `pandas requests openpyxl`。深交所 `SHOWTYPE=JSON` 返回 HTTP 500，**只有 xlsx 可用**，所以 `openpyxl` 不能删。
+
+### 13.3 七个坑（按踩坑代价排序）
+
+1. **东方财富快照会返回陈旧值，已彻底移除**（2026-11-02 真实事故）
+   东财对 `510300` 返回 301.99 亿份的陈旧值（真值 414.01 亿份），报表由此算出 −88.70 亿份的**假减持**，
+   与 `etf-lsi` 算出的 +25.34 亿份方向相反。份额**只能**来自交易所（Worker 代理上交所 / 深交所 xlsx），
+   **不要**为了「多一路兜底」把东财快照加回来。
+2. **镜像兜底有三道门槛，一道都不能松**
+   取不到沪市时的兜底是同源仓库镜像（`wwww1998/national-team-etf-flow` 的 `_etf_shares_cache.json`），
+   必须同时满足：① 日期**精确匹配**（绝不拿最近一天顶替）；② 镜像整行 ≥100 个代码（防镜像自己是半行）；
+   ③ 本表 **15 只沪市标的全有正值**。任一不满足就**整段沪市一并丢弃**，报表停在上一完整交易日。
+   **宁可少一天，绝不写半行或旧值。**
+3. **Worker 返回 200 + 空数组 ≠ 当天没数据**
+   Worker 会把上交所偶发失败包装成 `200 + data:[]`（并附 `upstream_error` 说明原因）。
+   本仓库目前按「这天没份额」处理，会退化成镜像/旧值 —— **不产生假数据，但丢掉 T+0 精度**。
+   要更稳就照 `wj624/etf-lsi` 的做法：**空表必须用直连 `query.sse.com.cn` 复核一次**再接。
+4. **加一只 ETF 要同步改三处**
+   `TARGETS`（代码 / 名称 / 市场）、`CAT_MAP`（归到哪个同类指数）、必要时 `CAT_INDEX`（该指数的 K 线源）。
+   漏了 `CAT_MAP` 这只 ETF 就不进同类合计；漏了 `CAT_INDEX` 对应图表会没有 K 线。
+   另外「15 只沪市标的全有正值」这条兜底门槛是**按当前列表算出来的**，加沪市标的时记得同步。
+5. **构建顺序不能反**
+   `refresh.py` 写出 `_etf_data.json` → `make_summary.py` 读它产出三份摘要 → `cp` 成 `index.html`。
+   工作流里这三步是写死的顺序；本地手工跑也要按这个顺序，否则摘要会是上一次的旧数。
+6. **`cron: "0 15 * * 1-5"` = 北京时间 23:00，`timeout-minutes: 25`**
+   23:00 是因为份额要等交易所晚间披露；**万一 23:00 还没发，报表最新日会滞后一天，但不会丢历史**
+   （增量窗口回溯最近 12 天，下一次运行自动补齐）。星期字段用 `1-5`，**禁止写 7**。
+   超时 25 分钟是实测值（正常 7~10 分钟，数据滞后自检最多再等 150s × 2）+ 余量；超了说明是卡死而不是算得慢。
+   数据没推进时 `refresh.py` 会沿用旧时间戳让输出字节不变，工作流 `git diff --cached --quiet` 后跳过提交，不产生冗余提交。
+7. **提交阶段有 `git pull --rebase`**
+   抓取耗时较长，期间若有人往 main 推过提交，直接 push 会被拒。rebase 失败就 `exit 1` 交给下一次调度，
+   **不要**改成 `--force` 强推（会覆盖别人的提交）。
+
+### 13.4 四类常见任务的 SOP
+
+**A. 加 / 减一只 ETF**
+改 `refresh.py` 的 `TARGETS` → 同步 `CAT_MAP` →（必要时）`CAT_INDEX` → 本地 `python refresh.py` →
+检查 `_etf_data.json` 里新代码是否有逐日序列、`index.html` 对应图是否有数据 → 提交。
+**不要**手工编辑 `_etf_shares_cache.json`：它由脚本增量维护，手改会在下一次写回时被覆盖或造成结构不一致。
+
+**B. 改调度时间**
+只改 `.github/workflows/daily-refresh.yml` 的 `cron`（UTC！北京时间 = UTC+8）。
+改完在 Actions 里 `Run workflow` 手动验证一次。注意 `push` 到 `daily.yml` 类文件不会自动触发（本仓库只配了 `schedule` + `workflow_dispatch`）。
+
+**C. 改邮件（收件人 / 时间 / 是否调 AI）**
+全在 `gas-national-team-daily.gs` 顶部的 `CONFIG`：`RECEIVER_EMAIL`、`TRIGGER_HOUR`/`TRIGGER_MINUTE`（默认 8:30）、
+`WITH_GEMINI`、`WEEKDAYS_ONLY`、`SKIP_IF_UNCHANGED`、`DRY_RUN`。
+**改完必须重新执行一次 `installDailyTrigger()`**，否则旧触发器还按老时间跑。
+密钥（Gemini key 等）写在 Apps Script 的「脚本属性」里，**绝不写进代码**；仓库里也不存任何明文密钥。
+
+**D. Action 红了怎么读**
+① 「安装依赖」红 → 网络问题，重跑即可；
+② `refresh.py` 红 → 往上翻日志找是哪个接口，`JSONDecodeError` 基本等于源站回空响应/HTML，不是格式问题；
+③ 提交阶段红 → 大概率 rebase 冲突，看是不是有人同时改了 `index.html`（产物冲突直接以最新一次运行为准，重跑一次即可）；
+④ 全绿但报表没更新 → 看日志里有没有「报表无变化, 跳过提交」，那是数据当天没推进，属正常。
+
+### 13.5 可复制给 AI 的提示词
+
+```text
+【任务】维护 https://github.com/wj624/national-team-etf-flow（中央汇金/国家队核心宽基 ETF 每日净买入卖出报表）。
+
+【先读什么】
+1. README 第四章「数据来源」→ 认链路：份额只能来自交易所（Worker 代理上交所 / 深交所 xlsx），
+   净值与交易日历走自建 Worker，指数 K 线走东财(主)/腾讯(备)。
+2. README 第五章「脚本做了哪些防错校准」→ 5 条口径规则，禁止回退。
+3. README 第六章「增量缓存机制」→ _etf_shares_cache.json 是数据资产，勿删勿手改。
+4. README 第十三章（本章）→ 13.1 文件职责、13.3 七个坑、13.4 SOP。
+5. 要动取数层时，再去读 https://github.com/wj624/a-stock-api 的 README（上游映射表 + 同步提示词）。
+
+【硬约束，违反即算错】
+- 份额数据只能来自交易所。东财快照 2026-11-02 曾对 510300 返回陈旧值（301.99 亿 vs 真值 414.01 亿），
+  算出 −88.70 亿份假减持，该路径已彻底移除，不要为了"多一路兜底"加回来。
+- 镜像兜底三道门槛（日期精确匹配 / 整行 ≥100 代码 / 15 只沪市全有正值）一道都不能松；
+  任一不满足就整段沪市丢弃、报表停在上一完整交易日。绝不用最近一天顶替、绝不写半行。
+- 单位：沪市 shares_10k 是万份 → ×10000；深市 xlsx 已是份 → 不许再乘。
+- 加 ETF 必须同步改 TARGETS / CAT_MAP（必要时 CAT_INDEX）三处。
+- 构建顺序固定：refresh.py(_etf_data.json) → make_summary.py(三份摘要) → cp 成 index.html。
+- latest.json / llms.txt / snapshot.md / index.html 都是产物，不要手改，改 make_summary.py 或 refresh.py。
+- echarts.min.js 是源文件不是垃圾，不要清理。
+- cron 是 UTC，写 "0 15 * * 1-5"（北京 23:00），星期禁止写 7。
+- 密钥只在 Apps Script 脚本属性 / 环境里，仓库不存任何明文；改完 CONFIG 要重跑 installDailyTrigger()。
+
+【改完必须自检】
+1. python refresh.py → 报表 HTML 生成，日志无 traceback；展示日 = 两市都有数据的最近共同交易日。
+2. python make_summary.py --check → 三份摘要内容与报表一致（尤其最新日净买卖、同类合计）。
+3. 检查 _etf_shares_cache.json：最新交易日整行存在、日期正确、无半行。
+4. 抽查逻辑自洽：同类 ETF 净买卖方向不应与 _etf_data.json 里的份额差反向（折算日会被强制置 0，属正常）。
+5. git status 里除 index.html / 三份摘要 / _etf_data.json / _etf_shares_cache.json 外，不应有其它改动。
+
+【提交规范】
+commit message 用中文，说明「改了什么 + 为什么」；动了口径或数据源要同步更新 README 第四 / 第五章。
+```
+
+### 13.6 动手前的三行自检
+
+- 我改的这处，会不会让某只 ETF 的份额变成「旧值 / 半行 / 最近一天顶替」？三者都不允许。
+- 加 ETF 时 `TARGETS` / `CAT_MAP` /（`CAT_INDEX`）是不是都改了？
+- 这个文件是源码还是产物？产物只能靠重跑生成，不能手改。
+
+---
 
 ## 免责声明
 
