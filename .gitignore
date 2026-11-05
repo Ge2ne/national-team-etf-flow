@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.log
+# 运行时副本：refresh.py 生成中文名报表，随后被 cp 成 index.html；
+# report_latest.html 供外部脚本引用。二者都不进版本库（README 13.5 自检第 5 条）。
+国家队ETF每日净买入卖出报表.html
+report_latest.html

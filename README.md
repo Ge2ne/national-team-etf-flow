@@ -45,22 +45,23 @@
 
 
 | 项目 | 原版（wwww1998） | 本版（wj624） |
+|---|---|---|
 | 在线地址 | <https://wwww1998.github.io/national-team-etf-flow/> | <https://wj624.github.io/national-team-etf-flow/> |
 | 单次耗时 | 中位 **9 分 43 秒**（近 22 次：最短 4 分、最长 69 分） | **7 分 33 秒**（实测） |
-| 页面体积 | 1.04 MB（外链版，实测 1,090,799 字节） | **2.02 MB**（内联版，实测 2,119,925 字节） |
+| 页面体积 | 较小（外链版） | **较大（内联版，全内联）** |
 | 沪市取数失败时 | 用东财实时快照凑数，可能写入陈旧值 | **读同源仓库整行镜像**，不齐就停在上一交易日 |
-| 仓库文件数 | 7 个 | 16 个 |
+| 仓库文件数 | 较少 | 较多 |
 | 每日邮件推送 | 无 | `gas-national-team-daily.gs`（可选） |
 
 
 
-> **关于「仓库体积」这一行**：9.91 MB 和 1.61 MB 都是 GitHub 显示的值，**含全部历史提交**。
+> **关于「仓库体积」这一行**：两版显示的都是 GitHub 含**全部历史提交**的值，原版明显更大。
 
 > 原版 2026-08-25 建库、每天提交约 10 次，至今 1100+ 次运行；本版 2026-10-31 建库、每天 1 次。
 
 > 所以这个差距里既有「跑得少」，也有「还年轻」——单看工作区文件，本版其实更大
 
-> （7.38 MB vs 2.88 MB），因为多存了 `_etf_data.json`、三份 AI 摘要和 ECharts 本体。
+> 因为多存了 `_etf_data.json`、三份 AI 摘要和 ECharts 本体。
 
 > 真正能长期拉开差距的是**提交频次低一个数量级**。
 
@@ -112,12 +113,12 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 
 
 
-实际上原版线上页面至今仍是外链状态：约 1.04 MB（实测 1,090,799 字节），带着一个指向
+实际上原版线上页面至今仍是外链状态（体积明显小于内联版），带着一个指向
 `registry.npmmirror.com` 的 `<script>`。
 
 
 
-本版把 **ECharts 5.5.0 原版**（1.0 MB）放进仓库，改成三级查找：
+本版把 **ECharts 5.5.0 原版**放进仓库，改成三级查找：
 
 
 
@@ -129,11 +130,11 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 
 
 
-云端因此命中第二级，产出 **2.02 MB 的全内联页面，零外链、断网可用**。
+云端因此命中第二级，产出**体积更大的全内联页面，零外链、断网可用**。
 
 上线实测（2026-11-03）：云端日志出现
 `ECharts 内联来源: /home/runner/work/national-team-etf-flow/national-team-etf-flow/echarts.min.js`，
-提交的 `index.html` 为 2,119,925 字节，页面里 `<script src>` 外链数为 **0**、无 `npmmirror` 字样。
+提交的 `index.html` 为全内联版本，页面里 `<script src>` 外链数为 **0**、无 `npmmirror` 字样。
 
 > 刷新后仍看到旧页面或图空白，多半是 GitHub Pages 的缓存：加个 `?v=时间戳` 再看，或 Ctrl+F5 强刷。
 
@@ -147,11 +148,11 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 
 
 
-- `latest.json`（9 KB）：算好的结论数，供程序 / 邮件脚本读
+- `latest.json`（体积很小）：算好的结论数，供程序 / 邮件脚本读
 
-- `llms.txt`（8 KB）：人话版摘要，可直接整段贴给大模型
+- `llms.txt`（体积很小）：人话版摘要，可直接整段贴给大模型
 
-- `snapshot.md`（8 KB）：同上内容，GitHub 上可直接渲染阅读
+- `snapshot.md`（体积很小）：同上内容，GitHub 上可直接渲染阅读
 
 
 
@@ -163,6 +164,7 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 原因：云端连不上上交所 → 旧逻辑回退东财实时快照 → 取到 301.99 亿份的陈旧份额（真值 414.01）→ 算出假减持。
 
 | | 原版 | 本版 |
+|---|---|---|
 | 取数失败时 | 东财实时快照（可能陈旧） | 同源仓库整行镜像 |
 | 最坏结果 | 报表出现错误数字 | 报表晚一天更新 |
 一句话：**宁可少一天，不写错一个数**。这是两版在「数据准确性」上的关键差别。
@@ -207,6 +209,7 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 
 
 | 模块 | 说明 |
+|---|---|
 | **KPI 卡片** | 最新交易日 / 近一周 / 近一月的合计净买卖（亿元） |
 | **累计持仓金额** | 最长约 3 年的折线，按当前份额 × 净值估算的持仓市值，悬停看当日值 |
 | **同类指数归集汇总** | 把跟踪同一指数的多只 ETF 加总（如 4 只沪深300ETF 合成一行），含最新份额与持仓市值 |
@@ -262,6 +265,7 @@ _EC_PATH = r"C:\Users\wxk11\.trae-cn\memory\echarts.min.js"
 > 换个出口 IP（Cloudflare）才是解法。
 
 | 数据 | 来源 | 取数方式 |
+|---|---|---|
 | 沪市 ETF 份额 | 上交所 | Worker `/api/etf-shares?exchange=SH&date=YYYY-MM-DD`（逐日） |
 | 基金单位净值 | 天天基金 | Worker `/api/fund-nav?code=XXXXXX`（东财 pingzhongdata） |
 | 中证全指 K 线 | 东方财富（主）/ 腾讯（备） | `push2his` / `web.ifzq.gtimg.cn` |
@@ -329,7 +333,7 @@ Worker 会把上交所的偶发失败包装成 `200 + data: []`（同时在响�
 
 
 
-`_etf_shares_cache.json`（约 1.6 MB）保存着近 **5 年**（`CAL_DAYS = 1850` 个工作日）的份额历史，同时缓存交易日历。
+`_etf_shares_cache.json`（体积随数据增长）保存着近 **5 年**（`CAL_DAYS = 1850` 个工作日）的份额历史，同时缓存交易日历。
 
 
 
@@ -406,6 +410,7 @@ Worker 会把上交所的偶发失败包装成 `200 + data: []`（同时在响�
 
 
 | 想要的时间 | cron 写法 | 含义 |
+|---|---|---|
 | 每天 23:00 | `0 15 * * *` | 每天 |
 | 工作日 08:00 + 23:00 | `0 0 * * 1-5` 和 `0 15 * * 1-5` | 两个时间点 |
 
@@ -469,8 +474,10 @@ python refresh.py
 
 
 | 文件 | 说明 |
-| `国家队ETF每日净买入卖出报表.html` | 主报表（中文文件名） |
-| `_etf_data.json` | 中间数据，便于二次分析 |
+|---|---|
+| `国家队ETF每日净买入卖出报表.html` | 主报表；由 `refresh.py` 运行时生成，随后被工作流 `cp` 成 `index.html`，本身不必进版本库 |
+| `_etf_data.json` | 完整原始数据，便于二次分析 |
+| `_etf_shares_cache.json` | 近 5 年份额历史 + 交易日历缓存（数据资产，勿删） |
 
 
 Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带锁文件、日志、无变化跳过推送），
@@ -483,19 +490,22 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 
 
-页面本身是 2.19MB 的自包含 HTML（内含 ECharts 本体），数值全部埋在 JS 数组里（`IDX_K` / `IDX_Q` / `DATA_D` 等），
+页面本身是体积较大的自包含 HTML（内含 ECharts 本体），数值全部埋在 JS 数组里（`IDX_K` / `IDX_Q` / `DATA_D` 等），
 
-剥掉脚本后只剩约 9,000 字符的口径说明——**AI 的网页抓取器读不到任何一个数字**。
+剥掉脚本后只剩很短一段口径说明——**AI 的网页抓取器读不到任何一个数字**。
 
 
 
-所以每次刷新会额外产出三份纯文本，供脚本和大模型直接使用：
+所以每次刷新会额外产出三份纯文本，连同完整原始数据一起，供脚本和大模型直接使用：
 
 
 
 | 文件 | 大小 | 用途 |
-| `_etf_data.json` | 约 2.5MB | 完整原始数据（`refresh.py` 生成）。含 11 类指数 5 年 K 线、23 只 ETF 逐日序列 |
-| `llms.txt` | 约 8.3KB | 人话版摘要，可直接发给大模型 / 粘贴进对话框 |
+|---|---|---|
+| `_etf_data.json` | 较大 | 完整原始数据（`refresh.py` 生成）。含 11 类指数 5 年 K 线、23 只 ETF 逐日序列 |
+| `latest.json` | 很小 | 算好的结论数，供程序 / 邮件脚本读 |
+| `llms.txt` | 很小 | 人话版摘要，可直接发给大模型 / 粘贴进对话框 |
+| `snapshot.md` | 很小 | 与 `llms.txt` 同内容，GitHub 上可直接渲染阅读 |
 
 
 
@@ -519,7 +529,7 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 > 想要人看的图表版就用第一个；想让 AI 总结、或自己写脚本取数，用第二个/第三个。
 
-> `_etf_data.json` 有 2.5MB，一般不必直接下载。
+> `_etf_data.json` 体积较大，一般不必直接下载。
 
 
 
@@ -528,9 +538,10 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 
 | 地址 | 状态 | Content-Type | 大小 |
-| `index.html` | 200 | text/html | 2,245,733 B |
-| `llms.txt` | 200 | text/plain | 8,280 B |
-| `_etf_data.json` | 200 | application/json | 2,567,992 B |
+|---|---|---|---|
+| `index.html` | 200 | text/html | 较大（随数据增长） |
+| `llms.txt` | 200 | text/plain | 很小 |
+| `_etf_data.json` | 200 | application/json | 较大（随数据增长） |
 
 
 
@@ -547,6 +558,7 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 
 | 字段 | 含义 |
+|---|---|
 | `today.net` | 当日全表净买卖（亿元，正=净买入） |
 | `today.rank_text` | 「史上第 N 大单日净买入」 |
 | `today.idx_chg` / `today.tag` | 当日中证全指涨跌，以及「越跌越买 / 顺势加仓 / 涨了就卖 / 下跌也在卖」判定 |
@@ -565,7 +577,7 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 
 
-报表是**完全自包含**的：ECharts 本体（1.0 MB）已经放进仓库并内联进页面，不引用任何外部 CDN，
+报表是**完全自包含**的：ECharts 本体已经放进仓库并内联进页面，不引用任何外部 CDN，
 
 **断网、离线、或者 CDN 挂了都不影响图表**。这也是本版与原版最直观的一处差别（详见开头对照表）。
 
@@ -579,9 +591,9 @@ Windows 下若想用计划任务托管，可参考 `update_and_push.ps1`（带�
 
 .github/workflows/daily-refresh.yml   GitHub Actions 定时刷新工作流
 
-refresh.py                            抓取 + 计算 + 生成报表的全部逻辑（约 1000 行）
+refresh.py                            抓取 + 计算 + 生成报表的全部逻辑
 
-echarts.min.js                        ECharts 5.5.0 本体（1.0MB），构建时内联进页面，勿删
+echarts.min.js                        ECharts 5.5.0 本体，构建时内联进页面，勿删
 
 make_summary.py                       从 _etf_data.json 提炼 latest.json / llms.txt / snapshot.md
 
@@ -589,15 +601,15 @@ gas-national-team-daily.gs            Google Apps Script 邮件脚本（每天�
 
 复制邮件脚本.html                     打开即可一键复制上面这个脚本的页面（每次拉最新版）
 
-index.html                            已发布的自包含报表（由工作流自动生成并提交，约 2.2MB）
+index.html                            已发布的自包含报表（由工作流自动生成并提交，体积较大）
 
 .nojekyll                             空文件，关闭 Jekyll，否则下划线开头的文件不会被发布
 
 _etf_data.json                        完整原始数据（自动生成并提交，供下游读取）
 
-latest.json                           精简结论数（自动生成，约 9.5KB）
+latest.json                           精简结论数（自动生成，体积很小）
 
-llms.txt / snapshot.md                人话版摘要（自动生成，约 8.3KB）
+llms.txt / snapshot.md                人话版摘要（自动生成，体积很小）
 
 _etf_shares_cache.json                近 5 年份额历史 + 交易日历缓存（勿删）
 
@@ -622,6 +634,7 @@ README.md                             本文件
 ### 出问题时先看这几行日志
 
 | 日志关键字 | 含义 | 要不要管 |
+|---|---|---|
 | `数据新鲜度: 最新同步日=… 期望=… 正常` | 展示日已是最新交易日 | 正常 |
 | `同源镜像兜底: 补入 … 沪市 15 只(镜像整行齐全)` | 上交所取数失败，已用镜像补齐 | 正常，数据可信 |
 | `镜像兜底: … 行仅 N 个代码, 疑似半行, 拒绝` | 镜像自己也没跑完，被安全校验拦下 | 正常，属预期保护 |
@@ -732,6 +745,7 @@ README.md                             本文件
 
 
 | 日志里出现 | 含义 | 处理 |
+|---|---|---|
 | `reported as leaked` | 密钥已被判定泄露、永久作废 | 只能新建一把，`setGeminiKey()` 重新设置 |
 | `API_KEY_SERVICE_BLOCKED` | 密钥设了 API 限制 | 控制台去掉限制，或新建 |
 | `共 N 个模型` | 通了 | 末尾会打印推荐的 `GEMINI_MODELS` 行 |
@@ -758,6 +772,7 @@ README.md                             本文件
 
 
 | 字段 | 默认 | 说明 |
+|---|---|---|
 | `RECEIVER_EMAIL` | 已填 | 收件人，多个用英文逗号分隔 |
 | `WITH_GEMINI` | `true` | 改 `false` 就不调大模型，直接用规则版总结（省配额、更快） |
 | `SKIP_IF_UNCHANGED` | `true` | 改 `false` 数据没变也照发 |
@@ -782,9 +797,10 @@ README.md                             本文件
 ### 13.1 仓库速览：哪个能改、哪个碰了就坏事
 
 | 文件 | 性质 | 说明 |
-| `refresh.py` | **源码**（约 1000 行） | 抓份额 / 净值 / K 线 → 算净买卖 → 渲染整页 HTML。所有逻辑都在这里 |
+|---|---|---|
+| `refresh.py` | **源码** | 抓份额 / 净值 / K 线 → 算净买卖 → 渲染整页 HTML。所有逻辑都在这里 |
 | `gas-national-team-daily.gs` | **源码** | Google Apps Script 邮件脚本，每天早上读 `latest.json` 发一封解读邮件 |
-| `_etf_shares_cache.json` | **数据资产，勿删** | 近 5 年份额历史 + 交易日历缓存（约 1.7 MB），每次运行增量写回并提交 |
+| `_etf_shares_cache.json` | **数据资产，勿删** | 近 5 年份额历史 + 交易日历缓存（体积随数据增长），每次运行增量写回并提交 |
 | `latest.json` / `llms.txt` / `snapshot.md` | 产物 | 给邮件脚本和大模型读的精简版，**不要手改**，要改内容去改 `make_summary.py` |
 | `.nojekyll` | 必需的空文件 | 关闭 Jekyll，否则 `_etf_data.json` 这类下划线开头的文件不会被发布 |
 
@@ -844,7 +860,7 @@ README.md                             本文件
 
 **B. 改调度时间**
 只改 `.github/workflows/daily-refresh.yml` 的 `cron`（UTC！北京时间 = UTC+8）。
-改完在 Actions 里 `Run workflow` 手动验证一次。注意 `push` 到 `daily.yml` 类文件不会自动触发（本仓库只配了 `schedule` + `workflow_dispatch`）。
+改完在 Actions 里 `Run workflow` 手动验证一次。注意 `push` 到 `.github/workflows/daily-refresh.yml` 类文件不会自动触发（本仓库只配了 `schedule` + `workflow_dispatch`）。
 
 **C. 改邮件（收件人 / 时间 / 是否调 AI）**
 全在 `gas-national-team-daily.gs` 顶部的 `CONFIG`：`RECEIVER_EMAIL`、`TRIGGER_HOUR`/`TRIGGER_MINUTE`（默认 8:30）、
@@ -889,7 +905,7 @@ README.md                             本文件
 2. python make_summary.py --check → 三份摘要内容与报表一致（尤其最新日净买卖、同类合计）。
 3. 检查 _etf_shares_cache.json：最新交易日整行存在、日期正确、无半行。
 4. 抽查逻辑自洽：同类 ETF 净买卖方向不应与 _etf_data.json 里的份额差反向（折算日会被强制置 0，属正常）。
-5. git status 里除 index.html / 三份摘要 / _etf_data.json / _etf_shares_cache.json 外，不应有其它改动。
+5. git status 里除 index.html / 三份摘要 / _etf_data.json / _etf_shares_cache.json 外，不应有其它改动；`refresh.py` 运行时还会额外生成 `国家队ETF每日净买入卖出报表.html` 与 `report_latest.html` 两个副本，它们由 `.gitignore` 忽略，不应出现在改动列表里。
 
 【提交规范】
 commit message 用中文，说明「改了什么 + 为什么」；动了口径或数据源要同步更新 README 第四 / 第五章。
