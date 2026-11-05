@@ -23,11 +23,11 @@ jobs:
     # 25 分钟留足余量, 真超了说明是卡死而不是算得慢, 直接中断、等下一次调度重跑即可。
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # 份额历史缓存已纳入仓库(_etf_shares_cache.json), checkout即得完整5年基线;
       # refresh.py 每次增量拉取并写回, 下方提交阶段将更新后的缓存一并提交回推, 云端自持不依赖本地/actions-cache
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
