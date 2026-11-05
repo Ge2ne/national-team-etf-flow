@@ -32,7 +32,8 @@ jobs:
           python-version: "3.11"
 
       - name: 安装依赖
-        run: pip install "pandas<4" "numpy<3" "requests<3" "openpyxl<4"
+        # pandas 3.x 有破坏性变更（Copy-on-Write / 字符串 dtype），无人值守锁 <3。
+        run: pip install "pandas<3" "numpy<3" "requests<3" "openpyxl<4"
 
       - name: 运行刷新脚本(拉份额/净值/K线, 计算净买卖, 生成报表)
         run: python refresh.py
