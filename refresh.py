@@ -184,11 +184,20 @@ TARGETS = [
     ("560010","中证1000ETF 广发","sh"),("159629","中证1000ETF 富国","sz"),
     ("159915","创业板ETF 易方达","sz"),("159952","创业板ETF 广发","sz"),
     ("159977","创业板ETF 天弘","sz"),
+    ("159949","创业板50ETF 华安","sz"),
     ("588080","科创板50ETF 易方达","sh"),("588050","科创板50ETF 工银","sh"),
+    ("588000","科创50ETF 华夏","sh"),
+    ("563300","A500ETF 华泰柏瑞","sh"),("159338","中证A500ETF 国泰","sz"),
+    ("159352","A500ETF 南方","sz"),("159361","A500ETF 易方达","sz"),
     ("510180","上证180ETF 华安","sh"),("510230","上证180金融ETF 国泰","sh"),
     ("159901","深证100ETF 易方达","sz"),
     ("515800","中证800ETF 汇添富","sh"),("560050","MSCI中国A50ETF 汇添富","sh"),
 ]
+
+# 2026-10 救市口径新增纳入的标的(此前报表未跟踪), 在明细行内打标
+NEW_TAG = "2026.10救市"
+NEW_TAG_CODES = {"588000", "563300", "159338", "159352", "159361", "159949"}
+
 
 # 同类指数归集
 CAT_MAP = {
@@ -197,7 +206,9 @@ CAT_MAP = {
     "510500":"中证500","512500":"中证500","159922":"中证500",
     "512100":"中证1000","159845":"中证1000","560010":"中证1000","159629":"中证1000",
     "159915":"创业板","159952":"创业板","159977":"创业板",
-    "588080":"科创板50","588050":"科创板50",
+    "159949":"创业板50",
+    "588080":"科创板50","588050":"科创板50","588000":"科创板50",
+    "563300":"中证A500","159338":"中证A500","159352":"中证A500","159361":"中证A500",
     "510180":"上证180","510230":"上证180金融",
     "159901":"深证100",
     "515800":"中证800","560050":"MSCI中国A50",
@@ -211,11 +222,13 @@ CAT_INDEX = {
     "中证500":    ("1.000905", "sh000905"),
     "中证1000":   ("1.000852", "sh000852"),
     "创业板":     ("0.399006", "sz399006"),
+    "创业板50":   ("0.399673", "sz399673"),
     "科创板50":   ("1.000688", "sh000688"),
     "上证180":    ("1.000010", "sh000010"),
     "上证180金融":  ("1.000018", "sh000018"),
     "深证100":    ("0.399330", "sz399330"),
     "中证800":    ("1.000906", "sh000906"),
+    "中证A500":   ("1.000510", "sh000510"),
     "MSCI中国A50": ("1.746059", "sh746059"),
 }
 CAL_DAYS = 1850  # 约5年(约1300个工作日) 覆盖全报表5年历史
@@ -378,8 +391,12 @@ def fetch_mirror_row(ds, codes):
         if not row:
             print("  镜像兜底: 镜像缓存无 %s, 跳过" % ds, flush=True)
             return None
-        if len(row) < 100:      # 完整行通常数百个代码; 明显偏少视为半行, 拒绝
-            print("  镜像兜底: %s 行仅 %d 个代码, 疑似半行, 拒绝" % (ds, len(row)), flush=True)
+        # 门槛随上游镜像规模自适应: 原版 2026-11-05 起改用 keep 过滤只存跟踪标的(29 只),
+        # 写死 100 会让同源镜像兜底永久静默失效。判定语义不变: 整行连本表沪市标的数都不到 => 半行。
+        # 真正的完整性仍由下方 len(got) != len(codes) 逐只校验兜住, 一道都没松。
+        if len(row) < len(codes):
+            print("  镜像兜底: %s 行仅 %d 个代码(< %d 只沪市标的), 疑似半行, 拒绝"
+                  % (ds, len(row), len(codes)), flush=True)
             return None
         got = {}
         for c in codes:
@@ -397,6 +414,62 @@ def fetch_mirror_row(ds, codes):
     except Exception as e:
         print("  镜像兜底失败:", str(e)[:90], flush=True)
         return None
+
+def import_new_codes_history(cache, trade_days=None):
+    """口径 23->29 只切换时, 从同源镜像一次性补入 6 只新增标的的历史份额(单位: 份)。
+    设计要点(见 README 附录 H):
+      - 只补空缺, 不覆盖本仓现有 Worker 数据; 重叠值差异 > 0.5% 只报警不改。
+      - 镜像与本站同源(同为交易所披露份额), 已实测重叠 44 个交易日逐日差值为 0。
+      - 写 hist_done 标记保证幂等: 成功一次后不再下载镜像, 省流量、不产生运行时垃圾。
+      - 镜像日期集合是本仓缓存日期集合的子集, 故只补已有日期行, 绝不新建半行、不动 valid。
+      - 任何失败都只打印日志并返回 0, 不阻断主流程(当日数据仍由 Worker/深交所提供)。
+    """
+    hist = cache.setdefault("shares", {})
+    done = cache.setdefault("hist_done", {})
+    if all(done.get(c) for c in NEW_TAG_CODES):
+        return 0
+    try:
+        r = requests.get(MIRROR_CACHE_URL, timeout=30,
+                         headers={"User-Agent": "Mozilla/5.0", "Cache-Control": "no-cache"})
+        r.raise_for_status()
+        src_shares = r.json().get("shares") or {}
+    except Exception as e:
+        print("新增标的历史导入: 镜像读取失败(%s), 跳过(不影响当日报表)" % str(e)[:80], flush=True)
+        return 0
+    filled = 0
+    conflict = 0
+    for ds, row in src_shares.items():
+        ds = str(ds)
+        if len(ds) != 8 or not ds.isdigit():
+            continue
+        if trade_days and ds not in trade_days:   # 不把非交易日写进缓存
+            continue
+        if ds not in hist:                       # 绝不新建日期行(防半行)
+            continue
+        if not isinstance(row, dict):
+            continue
+        for c in NEW_TAG_CODES:
+            try:
+                v = float(row[c])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if v <= 0:
+                continue
+            cur = hist[ds].get(c)
+            if not cur:
+                hist[ds][c] = v
+                filled += 1
+            elif cur > 0 and abs(cur - v) / cur > 0.005:
+                conflict += 1                    # 以现有 Worker 数据为准
+    for c in sorted(NEW_TAG_CODES):
+        n = sum(1 for m in hist.values() if c in m)
+        print("新增标的历史导入 %s: 累计 %d 个交易日" % (c, n), flush=True)
+        if n >= 5:
+            done[c] = "1"
+    if conflict:
+        print("新增标的历史导入: %d 处镜像与现有值差异>0.5%%, 已保留现有值(Worker 优先)" % conflict, flush=True)
+    print("新增标的历史导入完成: 补入 %d 个数值" % filled, flush=True)
+    return filled
 
 def load_nav():
     nav = {}
@@ -430,6 +503,8 @@ def main():
           (window[0] if window else "-", window[-1] if window else "-", len(window)), flush=True)
     trade_days = load_trade_calendar(cache)
     shares, valid, deep_start = load_shares_cached(window, cache, trade_days)
+    # 口径由 23 只扩到 29 只后, 新增 6 只缺历史份额: 从同源镜像一次性导入(幂等, 失败不阻断)
+    import_new_codes_history(cache, trade_days)
     # 数据新鲜度自检: 若展示日落后于最近已结束交易日(通常因数据源晚发布/单边失败), 等待后重试抓取
     exp = expected_latest_cut(trade_days)
     for _attempt in range(FRESH_RETRY):
@@ -645,6 +720,8 @@ def render_html(p):
         return s
     def cls(v):
         return "pos" if v >= 0 else "neg"
+    def ftag(code):
+        return f'<span class="tag">{NEW_TAG}</span>' if code in NEW_TAG_CODES else ''
     dates = p["dates"]
     dt = {}
     for k, v in p["date_total"].items():
@@ -851,7 +928,7 @@ def render_html(p):
             v = ser.get(d)
             m = (dsh.get(d) / bz) if (bz and dsh.get(d) is not None) else None
             cells += _dm_cell(v, m)
-        hot_html += f"<tr><td><span class='mkt'>{e['m']}</span>{escape_html(e['n'])}</td>{cells}</tr>"
+        hot_html += f"<tr><td><span class='mkt'>{e['m']}</span>{escape_html(e['n'])}{ftag(e['c'])}</td>{cells}</tr>"
 
     # 同类指数归集 · 每日净买卖明细矩阵 (最近 HOT 个交易日)
     cat_daily = {}
@@ -889,7 +966,7 @@ def render_html(p):
     rows = ""
     for e in etfs:
         rows += f"""<tr>
-          <td><span class="mkt">{e['m']}</span>{escape_html(e['n'])}<span class="code">{e['c']}</span></td>
+          <td><span class="mkt">{e['m']}</span>{escape_html(e['n'])}{ftag(e['c'])}<span class="code">{e['c']}</span></td>
           <td class="r">{e['last_share']:,.1f}</td>
           <td class="r {cls(e['today'])}">{fnum(e['today'], True)}</td>
           <td class="r {cls(e['week'])}">{fnum(e['week'], True)}</td>
@@ -985,6 +1062,8 @@ table.matrix td{{font:11px var(--font-mono,"SFMono-Regular",Consolas,monospace)}
 table.matrix th{{font-size:10px}}
 .mkt{{display:inline-block;font-size:10px;color:var(--mut);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-right:6px}}
 .code{{color:var(--mut);font-size:11px;margin-left:6px}}
+.tag{{display:inline-block;font-size:10px;line-height:15px;color:#b45309;background:#fff7ed;
+  border:1px solid #fed7aa;border-radius:4px;padding:0 5px;margin-left:6px;vertical-align:1px;font-weight:500;white-space:nowrap}}
 .tbar{{width:90px}}.tbf{{background:#f0f1f4;border-radius:3px;height:10px;overflow:hidden}}
 .tbf i{{display:block;height:100%;border-radius:3px}}
 .tbf i.pos{{background:var(--pos)}}.tbf i.neg{{background:var(--neg)}}
@@ -1015,7 +1094,7 @@ svg text{{fill:var(--mut);font-size:10px}}
         <span>标的口径：中央汇金持仓宽基ETF 共 <b>{len(etfs)}</b> 只</span>
         <button onclick="location.reload()" title="点击重新加载，并按沪深两市同步日期展示最新数据"
            style="cursor:pointer;margin-left:6px;padding:4px 12px;border:1px solid var(--line,#ccc);border-radius:6px;background:var(--card,#fff);color:var(--txt,#111);font-size:12px">🔄 刷新数据</button></div>
-      <div style="color:var(--mut);font-size:12px;margin-top:6px">汇金 2025 年 12 月 31 日持仓约 1.5 万亿、总计 23 只。本数据无法准确检测汇金实际持仓，仅反映这 23 只 ETF 的每日净申购赎回情况。</div>
+      <div style="color:var(--mut);font-size:12px;margin-top:6px">汇金 2025 年 12 月 31 日持仓约 1.5 万亿、本表跟踪 {len(etfs)} 只。本数据无法准确检测汇金实际持仓，仅反映这 {len(etfs)} 只 ETF 的每日净申购赎回情况。</div>
     </div>
   </div>
   <div class="kpis">
@@ -1064,13 +1143,14 @@ svg text{{fill:var(--mut);font-size:10px}}
       <button class="rng" data-n="0">全部</button>
       <span class="kpt" id="klnDate"></span></div>
     <div id="klnBox" style="height:520px;width:100%"></div>
-    <div id="klnTip" class="ktip">默认显示中证全指K线与全市场国家队ETF每日净买入联动；下拉可切换至11类细分指数（沪深300、创业板等）K线 × 该类ETF净买入合计。上方为指数日K线，下方为当日净买入金额（亿元），鼠标悬停联动查看；红=净买入、绿=净卖出。</div>
+    <div id="klnTip" class="ktip">默认显示中证全指K线与全市场国家队ETF每日净买入联动；下拉可切换至{len(CAT_INDEX)}类细分指数（沪深300、创业板等）K线 × 该类ETF净买入合计。上方为指数日K线，下方为当日净买入金额（亿元），鼠标悬停联动查看；红=净买入、绿=净卖出。</div>
   </div>
   <div class="card"><h2>分品种汇总 · 近一周 / 近一月净买入卖出（亿元，按近一月降序）</h2>
     <div style="overflow-x:auto"><table>
       <thead><tr><th>品种</th><th>最新份额(亿)</th><th>今日</th><th>近一周</th><th>近一月</th><th style="width:90px">近一月强度</th></tr></thead>
       <tbody>{rows}</tbody>
     </table></div>
+    <div style="color:var(--mut);font-size:11px;margin-top:8px">标注「{NEW_TAG}」的标的为 2026 年 10 月救市名单中新增纳入、此前报表未跟踪的品种（{len(NEW_TAG_CODES)} 只）；本次口径切换点见 README 附录 H。</div>
   </div>
   <div class="card"><h2>同类指数品种归集汇总（亿元）</h2>
     <div style="overflow-x:auto"><table>
