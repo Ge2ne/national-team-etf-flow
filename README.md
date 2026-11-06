@@ -1402,7 +1402,18 @@ ValueError: 'M' is no longer supported for offsets. Please use 'ME' instead.
 **验证**：`refresh.py` 语法自检通过；本地在与线上一致的隔离环境（`pandas 2.3.3`）按构建顺序重跑，
 确认 `#rankBox` 区块与 `RANK_JS` 完整生成、13 个板块齐全、区间累计与 `cat_total` 逐日加总一致、降序与红绿正确；
 另用 Node 真实执行 `RANK_JS`（模拟 DOM 与 60/120/250/全部 按钮点击），运行时无异常、13 行渲染、区间联动与降序均与 Python 复算一致（8/8 PASS）；
-线上按附录 H.9 的范式串行 dispatch `daily-refresh.yml` 实测；实测结论（run 号 / 产物 commit / 逐项核验）在本节回填。
+线上按附录 H.9 的范式串行 dispatch `daily-refresh.yml` 实测，结论如下：
+
+| 项 | 结果 |
+| --- | --- |
+| run | `42251628474`（2026-11-06 16:24 北京+8，基于 `886ae94`） |
+| 结论 / 耗时 | `success` / 2m43s，全部 step ✓ |
+| 日志 | 267 行，**0 traceback、0 fatal** |
+| 产物自动提交 | `2e9ea7a`，仅 5 个产物文件（`_etf_data.json` / `index.html` / `latest.json` / `llms.txt` / `snapshot.md`），源码 `refresh.py` 与 `README.md` 未被触碰 |
+| 线上页面复核 | 仍含 `#rankBox` 与 `RANK_JS`；`IDX_NAMES` 14 项（含创业板50 / 中证A500）、`DATA_D` 1267；文案「全部（13类29只）」与「与原版对表校验时排除本项对照」齐全 |
+| 线上口径 | `latest.json` 的 `scope` 仍为 29 只 / 13 类 / 1267 日，最新数据日 `2026-11-06` |
+
+唯一日志告警为 `指数K线失败 MSCI中国A50: ValueError: empty tx klines`，属既有降级链路的非阻断告警，见 I.7。
 
 **回滚**：本次只有 `refresh.py` 的展示层改动，回滚只需 `git revert <本次 commit>`，数据资产、缓存、三份摘要均不受影响；
 回滚后页面回到「只有联动图、没有排行」的状态，与本仓线上历史版本一致。
