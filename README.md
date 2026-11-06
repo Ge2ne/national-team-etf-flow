@@ -1439,6 +1439,7 @@ ValueError: 'M' is no longer supported for offsets. Please use 'ME' instead.
 都是脚本产物，手改会与脚本输出不一致、且下次刷新又被覆盖，属本 README 明令禁止的做法。
 给 AI 的判断依据：只要 `date_total` / `cat_total` 一致、`scope` 仍是 29 / 13，这些 diff 就**不算异常、不报 P0/P1**；
 巡检任务 #37207 第 6.5.8 节亦按此口径处理。
+
 ## 附录 J · 2026-11-07 邮件侧口径动态化与数据来源订正（与附录 I 的排行无关）
 
 ### J.1 背景：不是本次排行引起的，是 23→29 口径切换漏改的遗留
@@ -1486,4 +1487,38 @@ GAS 只负责取数和排版，改口径只改 Python 一处」。
 本次只订正邮件侧的**展示文案**，没有给邮件新增「各板块累计净买入排行」——
 排行仍是网页（`index.html`）独有的增强，邮件里本来就有「⑤ 各指数类别流向」表可看结构。
 与原版对表校验时的排除规则不变，见附录 I.4 与巡检任务 #37207 第 6.5.8 节。
+
+### J.5 验证与回滚
+
+**本地验证**（`work/verify_mail_fix.py`，22 PASS / 0 FAIL）：
+
+| 项 | 结果 |
+| --- | --- |
+| `.gs` 语法 | 全文另存为 `.js` 后 `node --check` 通过（Node 不认 `.gs` 扩展名） |
+| 动态渲染 | 真实 `scope` 渲染出「29 只」「过去 1267 个交易日」；把 `scope` 换成 31 只 / 1300 日，文案自动跟随；`scope` 缺失时降级为「全表」「过去几年」 |
+| 换行符 | `gas-national-team-daily.gs` / `README.md` 仍为 CRLF 且无裸 LF；`make_summary.py` / `llms.txt` / `snapshot.md` 仍为 LF，未出现整文件 diff |
+| 产物 | 重跑 `make_summary.py` 后 `latest.json` 仅 `generated` 时间戳滚动，结论数与 `scope` 29 / 13 / 1267 逐字不变；`snapshot.md` 与 `llms.txt` 完全一致 |
+
+**线上实测**（按附录 H.9 / I.6 的范式，串行 dispatch `daily-refresh.yml`）：
+
+| 项 | 结果 |
+| --- | --- |
+| 源码提交 | `125d872` `fix: 邮件侧口径动态化与数据来源订正（23→29 遗留，不影响网页排行）` |
+| run | `42254999191`（workflow API `completed / success`，`2026-11-06T16:49:17Z`；基于 `125d872`） |
+| 结论 / 日志 | `success`；267 行，**0 traceback、0 fatal** |
+| 产物自动提交 | `9639e8b`，仅 3 个文件（`latest.json` / `llms.txt` / `snapshot.md` 各 1 行，均为重跑时间戳），源码 `.gs` / `make_summary.py` / `README.md` 未被触碰 |
+| 最终独立核验 | 全 tree **18 个文件 blob SHA** 本地与 GitHub API 逐项一致；`README.md` 含附录 J、`.gs` 含 `buildGlossary_`、三份摘要无旧 AKShare 接口名；Pages `index.html` / `llms.txt` / `latest.json` / `gas-national-team-daily.gs` 四个入口 HTTP 200 且关键内容命中；工作区 clean（29 PASS / 0 FAIL） |
+| 唯一告警 | `指数K线失败 MSCI中国A50: ValueError: empty tx klines`，既有降级链路的非阻断告警，见 I.7 |
+
+**给 AI 的判断依据**：邮件侧这次只改文案与数据来源描述，不碰金额、不碰口径、不碰网页排行；
+`latest.json` 的 `scope` 仍是 29 / 13 / 1267，`date_total` / `cat_total` 不变，就不算异常、不报 P0/P1。
+
+**回滚**：`git revert 125d872` 可回退仓库源码；但 **Google Apps Script 里正在运行的副本是用户手动粘贴的，
+不会随 git 回滚**，需按 J.3 再粘贴一次旧版 `.gs`（或从 Apps Script 版本历史恢复）。
+数据资产、缓存、网页 `index.html` 的排行均不受影响。
+
+> **人工动作不在仓库内**：J.3 的粘贴需用户手动完成，GitHub / Pages / 巡检脚本都无法确认
+> Apps Script 里跑的是哪一版。若发现邮件名词速查仍显示「23 只」，先按 J.3 核对是否已粘贴新版，
+> **不要回头改仓库代码** —— 仓库源码已是动态版，改它解决不了运行副本的问题。
+
 
