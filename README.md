@@ -922,6 +922,9 @@ README.md                             本文件
 - 构建顺序固定：refresh.py(_etf_data.json) → make_summary.py(三份摘要) → cp 成 index.html。
 - 联动图卡片内的「各板块累计净买入排行」是本仓独有增强（原版没有，见附录 I）：与原版对表校验时**排除这一项**，不得因原版页面没有排行而判为异常或删掉本模块。
 - latest.json / llms.txt / snapshot.md / index.html 都是产物，不要手改，改 make_summary.py 或 refresh.py。
+- 邮件侧口径数字（只数 / 交易日数）一律从 latest.json 的 scope 动态读取，禁止在
+  gas-national-team-daily.gs 里写死「23 只」「1262 个交易日」这类常量；改完 .gs 需手动到
+  Apps Script 粘贴一次（GitHub 不会自动同步运行副本），见附录 J。
 - echarts.min.js 是源文件不是垃圾，不要清理。
 - cron 是 UTC，写 "0 15 * * 1-5"（北京 23:00），星期禁止写 7。
 - 密钥只在 Apps Script 脚本属性 / 环境里，仓库不存任何明文；改完 CONFIG 要重跑 installDailyTrigger()。
@@ -1436,3 +1439,51 @@ ValueError: 'M' is no longer supported for offsets. Please use 'ME' instead.
 都是脚本产物，手改会与脚本输出不一致、且下次刷新又被覆盖，属本 README 明令禁止的做法。
 给 AI 的判断依据：只要 `date_total` / `cat_total` 一致、`scope` 仍是 29 / 13，这些 diff 就**不算异常、不报 P0/P1**；
 巡检任务 #37207 第 6.5.8 节亦按此口径处理。
+## 附录 J · 2026-11-07 邮件侧口径动态化与数据来源订正（与附录 I 的排行无关）
+
+### J.1 背景：不是本次排行引起的，是 23→29 口径切换漏改的遗留
+
+附录 H 记录 2026-11-06 把口径从 23 只 / 11 类切到 29 只 / 13 类，改动集中在
+`refresh.py` / `make_summary.py` / `index.html` / README。但邮件链路里有几处**写死的旧数字和旧数据源描述**没同步：
+
+| 位置 | 原内容（错） | 订正后 |
+| --- | --- | --- |
+| `gas-national-team-daily.gs` 名词速查 | 「把 **23 只** ETF…」「这 **23 只** ETF…」 | 从 `scope.etfs` 动态取（当前 29 只） |
+| 同上 | 「过去 **1262 个交易日**」 | 从 `scope.days` 动态取（当前 1267，且会随交易日增长） |
+| 同上「数据来源」/「卡住提醒」 | AKShare 逐日与区间接口 / 新浪交易日历 /「AKShare 接口改版」 | 自建 `a-stock-api` Worker 代理 + 深交所官方 xlsx 直连；措辞改为「上游份额接口改版或自建 Worker 异常」 |
+| `make_summary.py` 的 `render()`（生成 `llms.txt` / `snapshot.md`） | AKShare `fund_etf_scale_sse` / `fund_scale_daily_szse` / 新浪 `tool_trade_date_hist_sina` | 现行真实链路（见 README 第四章） |
+
+后果：邮件**页头**显示「29 只 ETF / 13 个指数类别」，**名词速查**却写「23 只」，自相矛盾；
+`llms.txt` 会被 GAS 整段塞进 Gemini 的 prompt（「完整数据如下」），所以 AI 读到的「数据来源」也是过时的。
+金额计算不受影响 —— GAS 里金额一律从 `latest.json` 动态读，`testConnections()` 的 9 个必需字段实测全齐。
+
+### J.2 改法：动态化，而不是把 23 改成 29
+
+`GLOSSARY` 从静态数组改为 `buildGlossary_(d)`，只数 / 交易日数从 `latest.json` 的
+`scope.etfs` / `scope.days` 读取；`buildHtml_()` 里改为调用该函数。**不要把 23 只硬改成 29 只** ——
+下次加标的或交易日增长又会漏改。这正好落实第十二节的设计铁律「计算全在 `make_summary.py` 做完，
+GAS 只负责取数和排版，改口径只改 Python 一处」。
+
+`llms.txt` / `snapshot.md` 的同源文案改在 `make_summary.py` 的 `render()` 里（两份产物内容相同，改一处即可），
+**不改产物本身**。`latest.json` 不受影响（它来自 `build()`，与 `render()` 无关）。
+
+### J.3 部署须知（重要）：改 .gs 不会自动同步到 Google
+
+`gas-national-team-daily.gs` 是仓库里的**源码副本**；每天真正在跑的是
+`script.google.com` 里用户手动粘贴的那一份。GitHub 推送**不会**更新它。改完本文件后必须做一次：
+
+1. 打开 <https://wj624.github.io/national-team-etf-flow/复制邮件脚本.html>
+   （该页每次都 `fetch` 仓库最新的 `.gs`，无需改动它本身）；
+2. 点「复制全文」；
+3. 进 Apps Script 项目「五、 国家队ETF流向」→ 全选覆盖粘贴 → `Ctrl+S` 保存。
+
+脚本属性里的 Gemini 密钥、`PROP_ASOF` 去重记录、已装的 08:30 定时器都**不受影响**，
+不用重新 `setGeminiKey()`、不用重跑 `installDailyTrigger()`。
+想立刻验证，运行 `testConnections()` 或 `previewNow()` 即可。
+
+### J.4 与附录 I 的关系 / 校验规则
+
+本次只订正邮件侧的**展示文案**，没有给邮件新增「各板块累计净买入排行」——
+排行仍是网页（`index.html`）独有的增强，邮件里本来就有「⑤ 各指数类别流向」表可看结构。
+与原版对表校验时的排除规则不变，见附录 I.4 与巡检任务 #37207 第 6.5.8 节。
+

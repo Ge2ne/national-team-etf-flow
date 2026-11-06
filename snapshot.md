@@ -1,6 +1,6 @@
 # 国家队 ETF 净买卖 · 数据摘要
 
-> 数据日：2026-11-06（周五）　数据时间戳 2026-11-07 00:02　本摘要生成于 2026-11-06 16:24
+> 数据日：2026-11-06（周五）　数据时间戳 2026-11-07 00:02　本摘要生成于 2026-11-07 00:42
 > 在线看板：https://wj624.github.io/national-team-etf-flow/
 > 机器可读：https://wj624.github.io/national-team-etf-flow/latest.json
 
@@ -144,11 +144,13 @@
 
 | 用途 | 来源 |
 |---|---|
-| 上交所 ETF 份额 | AKShare `fund_etf_scale_sse`（逐日） |
-| 深交所 ETF 份额 | AKShare `fund_scale_daily_szse`（区间批量） |
-| 单位净值 | 天天基金 `fund_open_fund_info_em` |
-| 指数 K 线 | 东方财富（失败时降级腾讯行情） |
-| 交易日历 | 新浪 `tool_trade_date_hist_sina` |
+| 沪市 ETF 份额 | 上交所官方披露，经自建 `a-stock-api` Worker `/api/etf-shares` 逐日代理 |
+| 深市 ETF 份额 | 深交所官方 xlsx，本仓直连解析 |
+| 单位净值 | 天天基金（东财 pingzhongdata），经同一 Worker `/api/fund-nav` |
+| 交易日历 | 同一 Worker `/api/trade-calendar` |
+| 指数 K 线 | 东方财富（主），失败时降级腾讯行情 |
+
+> 2026-11 起**不再依赖 AKShare**：份额 / 净值 / 交易日历统一走自建 Worker 代理，深市份额直连交易所官方 xlsx；新增标的的历史份额从同源镜像一次性导入。详见仓库 README 第四章「数据来源」与附录 H。
 
 ## 免责声明
 

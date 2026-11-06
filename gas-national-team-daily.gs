@@ -133,14 +133,26 @@ var FORCE_ = false;
 // ============================================================
 // 2. 名词白话解释（邮件「名词速查」用）
 // ============================================================
-var GLOSSARY = [
-  ['净买卖（亿元）', '把 23 只 ETF 当天份额的增减，乘上当天净值折算成钱。正数 = 资金净申购进场（红色），负数 = 净赎回离场（绿色）。'],
-  ['倍量份额', '当天净申购的份额，相当于该 ETF 自身规模的百分之几。用来横向比较大小盘 ETF 的「用力程度」。基准日固定为 2025-12-31，之后份额变化大的品种（如创业板 ETF）会被放大，看趋势可以，不宜跨品种硬比。'],
-  ['历史分位', '今天的数字在过去 1262 个交易日里排第几。90% 表示只有 10% 的日子比今天更极端。'],
-  ['越跌越买', '指数当天下跌，ETF 却被净申购。这是最典型的托底形态。反过来「上涨也在买」更接近追涨。'],
-  ['持仓市值', '这 23 只 ETF 的份额 × 净值加总，可以近似看作「这批钱的体量」。它变小主要是净值下跌 + 赎回共同造成的，不全是钱跑了。'],
-  ['数据日', '上交所与深交所的份额披露节奏不同、且都有 1~2 天滞后，本页取两地都有数据的最近共同交易日。']
-];
+/**
+ * 2026-11-07 起改为动态生成：只数 / 交易日数一律从 latest.json 的 scope 读，
+ * 不再写死「23 只」「1262 个交易日」。口径变更或交易日增长都不会在这里漏改。
+ * 设计依据见 README 第十二节「计算全在 Python 做完，GAS 只取数和排版」、附录 J。
+ */
+function buildGlossary_(d) {
+  var scope = (d && d.scope) || {};
+  var nEtf = num_(scope.etfs, 0);
+  var nDays = num_(scope.days, 0);
+  var etfWord = nEtf ? (nEtf + ' 只') : '全表';
+  var dayWord = nDays ? ('过去 ' + nDays + ' 个交易日') : '过去几年';
+  return [
+    ['净买卖（亿元）', '把 ' + etfWord + ' ETF 当天份额的增减，乘上当天净值折算成钱。正数 = 资金净申购进场（红色），负数 = 净赎回离场（绿色）。'],
+    ['倍量份额', '当天净申购的份额，相当于该 ETF 自身规模的百分之几。用来横向比较大小盘 ETF 的「用力程度」。基准日固定为 2025-12-31，之后份额变化大的品种（如创业板 ETF）会被放大，看趋势可以，不宜跨品种硬比。'],
+    ['历史分位', '今天的数字在' + dayWord + '里排第几。90% 表示只有 10% 的日子比今天更极端。'],
+    ['越跌越买', '指数当天下跌，ETF 却被净申购。这是最典型的托底形态。反过来「上涨也在买」更接近追涨。'],
+    ['持仓市值', '这 ' + etfWord + ' ETF 的份额 × 净值加总，可以近似看作「这批钱的体量」。它变小主要是净值下跌 + 赎回共同造成的，不全是钱跑了。'],
+    ['数据日', '上交所与深交所的份额披露节奏不同、且都有 1~2 天滞后，本页取两地都有数据的最近共同交易日。']
+  ];
+}
 
 // ============================================================
 // 3. 主入口
@@ -1016,12 +1028,13 @@ function buildHtml_(d, bundle) {
   // ---------- ⑨ 名词速查 ----------
   h.push(sectionOpen_(C, '⑦ 名词速查', '第一次看这份数据的话，先扫一眼这里。'));
   h.push('<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:12px;">');
-  for (var g = 0; g < GLOSSARY.length; g++) {
+  var glossary = buildGlossary_(d);
+  for (var g = 0; g < glossary.length; g++) {
     h.push('<tr>');
     h.push('<td width="96" valign="top" style="padding:8px 8px 8px 0;border-bottom:1px solid ' + C.line2 +
-           ';font-weight:700;color:' + C.tx2 + ';white-space:nowrap;">' + esc_(GLOSSARY[g][0]) + '</td>');
+           ';font-weight:700;color:' + C.tx2 + ';white-space:nowrap;">' + esc_(glossary[g][0]) + '</td>');
     h.push('<td valign="top" style="padding:8px 0;border-bottom:1px solid ' + C.line2 + ';color:' + C.tx + ';line-height:1.75;">' +
-           esc_(GLOSSARY[g][1]) + '</td>');
+           esc_(glossary[g][1]) + '</td>');
     h.push('</tr>');
   }
   h.push('</table>');
@@ -1035,7 +1048,9 @@ function buildHtml_(d, bundle) {
          '净买卖金额 =（当日份额 − 前一日份额）× 当日单位净值<br>' +
          '倍量份额　 = 当日净申购份额 ÷ 该 ETF 2025-12-31 份额 × 0.1%</div>');
   h.push('<div style="font-weight:700;color:' + C.tx + ';margin-bottom:5px;">数据来源</div>');
-  h.push('<div style="margin-bottom:11px;">上交所 / 深交所 ETF 份额（AKShare 逐日与区间接口）　·　天天基金单位净值　·　东方财富指数 K 线（失败时降级腾讯行情）　·　新浪交易日历</div>');
+  h.push('<div style="margin-bottom:11px;">沪市 ETF 份额：上交所官方披露，经自建 a-stock-api Worker 逐日代理；' +
+         '深市 ETF 份额：深交所官方 xlsx 直连解析；单位净值与交易日历：天天基金等，经同一 Worker 代理；' +
+         '指数 K 线：东方财富（主），失败时降级腾讯行情。2026-11 起已不再依赖 AKShare。</div>');
   h.push('<div style="font-weight:700;color:' + C.tx + ';margin-bottom:5px;">三个必须知道的局限</div>');
   h.push('<div>① <b>ETF 净申购 ≠ 国家队买入。</b>这只是「资金动向」的公开代理口径，真正的持仓归属无法从公开数据看到。</div>');
   h.push('<div>② <b>份额披露有 1~2 天滞后。</b>沪深两市节奏不同，本页取两地都有数据的最近共同交易日，所以「数据日」通常比今天早一天。</div>');
@@ -1429,7 +1444,7 @@ function sendStale_(asof, today) {
     '连续 3 个工作日过去了，看板的数据日还停在 ' + asof + '，没有出现新的交易日数据。\n\n' +
     '可能的原因：\n' +
     '1. 长假期（春节 / 国庆），这属于正常，假期结束后会自动恢复；\n' +
-    '2. GitHub Actions 的定时任务连续失败（比如 AKShare 接口改版），需要去仓库 Actions 页面看红色叉号；\n' +
+    '2. GitHub Actions 的定时任务连续失败（比如上游份额接口改版或自建 Worker 异常），需要去仓库 Actions 页面看红色叉号；\n' +
     '3. 交易所份额披露延迟超过 3 天（少见）。\n\n' +
     '先打开看板确认一下：' + CONFIG.URL_SITE + '\n' +
     '如果看板上的数据日也是 ' + asof + '，就是第 2 种，去仓库的 Actions 页看最近一次运行日志。\n\n' +
