@@ -789,6 +789,65 @@ def render_html(p):
     ISERIES = json.dumps(i_kl_series, ensure_ascii=False)
     ISERIES_Q = json.dumps(i_qd_series, ensure_ascii=False)
     D_ARR = json.dumps(dates, ensure_ascii=False)
+    RANK_JS = r'''(function(){
+ var box=document.getElementById('rankBox');
+ if(!box) return;
+ function nOf(b){
+  var n=parseInt(b.getAttribute('data-n'),10);
+  return n===0?0:(isNaN(n)?120:n);
+ }
+ function initN(){
+  var b=document.querySelector('.rng.sel');
+  return b?nOf(b):120;
+ }
+ function fmt(v){
+  var neg=v<0, x=Math.abs(v).toFixed(2), p=x.split('.'), a=p[0], r='', c=0, k;
+  for(k=a.length-1;k>=0;k--){ r=a[k]+r; c++; if(c%3===0&&k>0) r=','+r; }
+  return (neg?'-':'+')+r+'.'+p[1];
+ }
+ function calc(n){
+  var s=(n>0)?Math.max(0,DATA_D.length-n):0, arr=[], i, j, t, q, tot=0, q0=IDX_Q[0];
+  for(i=1;i<IDX_NAMES.length;i++){
+   q=IDX_Q[i]; t=0;
+   for(j=s;j<q.length;j++){ t+=q[j]; }
+   arr.push({nm:IDX_NAMES[i], v:t});
+  }
+  arr.sort(function(a,b){return b.v-a.v;});
+  for(j=s;j<q0.length;j++){ tot+=q0[j]; }
+  return {arr:arr, tot:tot, days:q0.length-s, n:n};
+ }
+ function render(n){
+  var r=calc(n), mx=0, i, o, pos, w, col, h='';
+  for(i=0;i<r.arr.length;i++){ mx=Math.max(mx,Math.abs(r.arr[i].v)); }
+  if(mx<=0) mx=1;
+  var scope=(r.n>0?('近 '+Math.min(r.n,DATA_D.length)+' 个交易日'):('全部 '+DATA_D.length+' 个交易日'));
+  h+='<div style="font-size:12px;color:#7a8194;margin-bottom:9px">';
+  h+='区间 <b style="color:#1a1d24">'+scope+'</b> ｜ 全市场合计 <b style="color:'+(r.tot>=0?'#d43d2a':'#1f9d7b')+'">'+fmt(r.tot)+' 亿</b>';
+  h+=' <span style="color:#b0b6c4">（共 '+r.arr.length+' 个板块 · '+r.days+' 个交易日逐日加总）</span></div>';
+  for(i=0;i<r.arr.length;i++){
+   o=r.arr[i]; pos=o.v>=0; w=Math.abs(o.v)/mx*48; col=pos?'#d43d2a':'#1f9d7b';
+   h+='<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:12px">';
+   h+='<span style="width:96px;flex:none;text-align:right;color:#7a8194;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+o.nm+'</span>';
+   h+='<div style="flex:1;position:relative;height:14px;background:#f2f4f8;border-radius:3px;overflow:hidden">';
+   h+='<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:#c9cfdd"></div>';
+   h+='<div style="position:absolute;top:2px;bottom:2px;'+(pos?'left:50%':'right:50%')+';width:'+w.toFixed(2)+'%;background:'+col+';border-radius:2px"></div>';
+   h+='</div>';
+   h+='<span style="width:100px;flex:none;text-align:right;color:'+col+';font-variant-numeric:tabular-nums;white-space:nowrap">'+fmt(o.v)+' 亿</span>';
+   h+='</div>';
+  }
+  box.innerHTML=h;
+ }
+ function boot(){
+  render(initN());
+  var btns=document.querySelectorAll('.rng');
+  Array.prototype.forEach.call(btns,function(b){
+   b.addEventListener('click',function(){ render(nOf(b)); });
+  });
+ }
+ if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',boot);}else{boot();}
+})();
+'''
+
     KLN_JS = ("<script>\n"
       "var IDX_NAMES=" + INAMES + ";\n"
       "var IDX_K=" + ISERIES + ";\n"
@@ -839,7 +898,8 @@ def render_html(p):
       "window.addEventListener('resize',function(){chart.resize();});\n"
       "}\n"
       "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',go);}else{go();}\n"
-      "})();\n"
+      "})();\n" +
+      RANK_JS +
       "</script>")
 
     _cat_opts = "".join('<option%s>%s</option>' % (' selected' if i == 0 else '', _n) for i, _n in enumerate(i_kl_names))
@@ -1144,6 +1204,12 @@ svg text{{fill:var(--mut);font-size:10px}}
       <span class="kpt" id="klnDate"></span></div>
     <div id="klnBox" style="height:520px;width:100%"></div>
     <div id="klnTip" class="ktip">默认显示中证全指K线与全市场国家队ETF每日净买入联动；下拉可切换至{len(CAT_INDEX)}类细分指数（沪深300、创业板等）K线 × 该类ETF净买入合计。上方为指数日K线，下方为当日净买入金额（亿元），鼠标悬停联动查看；红=净买入、绿=净卖出。</div>
+    <div style="margin-top:18px;border-top:1px dashed var(--line);padding-top:14px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:2px">各板块累计净买入排行 <span style="font-size:11px;font-weight:400;color:var(--mut)">（按所选区间累计降序 · 排最上 = 综合入场金额最多）</span></div>
+      <div style="font-size:11px;color:var(--mut);margin-bottom:10px">随上方「显示范围」按钮联动：60日 / 120日 / 250日 / 全部</div>
+      <div id="rankBox"></div>
+      <div style="font-size:11px;color:var(--mut);line-height:1.7;margin-top:10px"><b>口径：</b>把所选显示范围内每个指数类别的「每日净买卖」逐日加总，按累计金额从高到低排列，用来横向比较哪个板块综合加下来入场金额更多。数据直接取自上方联动图同一份逐日金额（<code>cat_total</code> 逐类 / <code>date_total</code> 全市场），不新增取数、不改任何计算口径；红 = 净买入（资金流入）、绿 = 净卖出，条长以本表最大绝对值为基准、零轴居中，仅用于板块间相对比较。<br><b style="color:var(--accent)">说明：本模块为本仓独有增强，原版无此排行，二者不一致属预期；与原版对表校验时排除本项对照</b>（见 README 附录 I 与巡检任务 6.5.8）。</div>
+    </div>
   </div>
   <div class="card"><h2>分品种汇总 · 近一周 / 近一月净买入卖出（亿元，按近一月降序）</h2>
     <div style="overflow-x:auto"><table>
