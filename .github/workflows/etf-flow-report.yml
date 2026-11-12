@@ -20,7 +20,7 @@ jobs:
           python-version: "3.11"
 
       - name: 安装依赖
-        run: pip install "pandas<3" "numpy<3" "tushare>=1.4" "requests<3"
+        run: pip install "pandas<3" "numpy<3" "tushare>=1.4" "requests<3" "six"
 
       - name: 生成增强版 HTML（K线 / 净买入 / 成交额 / 融资余额）
         env:
