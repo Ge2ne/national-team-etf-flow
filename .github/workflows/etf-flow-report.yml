@@ -1,0 +1,51 @@
+name: 国家队ETF份额流向（增强版）
+
+on:
+  schedule:
+    - cron: "0 9,11,13 * * 1-5"   # 17:00 / 19:00 / 21:00 北京
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install "pandas<3" "numpy<3" "tushare>=1.4" "requests<3"
+
+      - name: 生成增强版 HTML（K线 / 净买入 / 成交额 / 融资余额）
+        env:
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+        run: |
+          python pipeline/finance/ingest_etf_share.py \
+            --start 20150101 \
+            --end $(TZ=Asia/Shanghai date +%Y%m%d) \
+            --refresh-benchmark --refresh-margin --refresh-turnover --report
+
+      - name: 发布到 GitHub Pages
+        run: |
+          mkdir -p etf-flow
+          latest=$(ls -t data/finance/国家队ETF份额流向_*.html | head -1)
+          echo "publish: $latest"
+          cp "$latest" etf-flow/index.html
+          cp "$latest" "etf-flow/$(basename "$latest")"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add etf-flow
+          if git diff --cached --quiet; then
+            echo "无变化，跳过提交"
+            exit 0
+          fi
+          git commit -m "chore: update enhanced ETF flow report ($(TZ=Asia/Shanghai date +%F))"
+          git pull --rebase origin main || { echo "rebase failed"; exit 1; }
+          git push
